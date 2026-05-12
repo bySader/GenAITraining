@@ -206,7 +206,7 @@ def call_llm(system_prompt: str, user_message: str) -> dict:
     """
     for attempt in range(2):
         response = client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",  # fast, free, and actively supported on Groq
             temperature=0.1,       # low temperature → deterministic, structured output
             max_tokens=256,        # short responses for classification tasks
             messages=[
