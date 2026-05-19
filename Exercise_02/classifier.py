@@ -18,13 +18,13 @@ from dotenv import load_dotenv
 # ─────────────────────────────────────────────────────────────
 # Load environment variables
 # ─────────────────────────────────────────────────────────────
+
 load_dotenv()
 
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-# ─────────────────────────────────────────────────────────────
-# TAXONOMY — Allowed categories and their sub-categories
-# ─────────────────────────────────────────────────────────────
+# TAXONOMY — All categories and their sub-categories
+
 TAXONOMY = {
     "Reviews": ["Positive", "Negative", "Neutral"],
     "Marketing & Promotion": [
@@ -47,6 +47,12 @@ TAXONOMY = {
         "Travel expenses",
         "Budget planning",
     ],
+        "ERROR": [
+        "Document too short to classify",
+        "Doccument too long to classify",
+        "Document contains multiple topics",
+        "Document is empty",
+    ],
 }
 
 CATEGORIES = list(TAXONOMY.keys())
@@ -55,6 +61,26 @@ CATEGORIES = list(TAXONOMY.keys())
 # STEP 1 — PROMPT DEFINITIONS (3 techniques)
 #           Call 1: Determine CATEGORY
 # ─────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────
+# VALIDATION PROMPT — Check for multiple topics
+# ─────────────────────────────────────────────────────────────
+
+VALIDATE_TOPICS_PROMPT = f"""
+You are a text analysis expert.
+Your task is to determine if a text discusses ONE main topic or MULTIPLE distinct topics.
+
+Analyze the text and respond with ONLY this JSON:
+{{"has_multiple_topics": true}} if the text covers multiple unrelated or loosely related topics
+{{"has_multiple_topics": false}} if the text focuses on ONE main topic or related subtopics of the same theme
+
+Examples:
+- "I love this blender! By the way, the stock market went up 5% today." → true (blender review + stock market = unrelated)
+- "The new iPhone has great cameras and excellent battery life." → false (both are features of ONE product)
+- "We won 3-2 in football, and I spent $50 on groceries." → true (sports + shopping = unrelated)
+
+Respond ONLY with the JSON object. Nothing else.
+""".strip()
 
 CATEGORY_PROMPT_ZEROSHOT = f"""
 You are an expert text classification assistant.
@@ -97,6 +123,7 @@ Follow these internal reasoning steps:
   Step 2: Consider which of the allowed categories best fits the topic.
   Step 3: Eliminate categories that do not match.
   Step 4: Select the single best category.
+  Step 5: Double-check that the category is one of the allowed options.
 
 Allowed categories:
 {json.dumps(CATEGORIES, indent=2)}
@@ -108,10 +135,10 @@ Required format:
 {{"category": "<one of the allowed categories>"}}
 """.strip()
 
-# ─────────────────────────────────────────────────────────────
-# STEP 2 — PROMPT DEFINITIONS (3 techniques)
+
+#  PROMPT DEFINITIONS (3 techniques)
 #           Call 2: Determine SUB-CATEGORY (constrained)
-# ─────────────────────────────────────────────────────────────
+
 
 def build_subcategory_prompt_zeroshot(category: str) -> str:
     subcategories = TAXONOMY[category]
@@ -165,7 +192,7 @@ Follow these reasoning steps:
   Step 1: Re-read the text focusing on nuances related to "{category}".
   Step 2: Compare the text against each allowed sub-category.
   Step 3: Select the single best-matching sub-category.
-
+  Step 4: Double-check that the sub-category is one of the allowed options.
 Allowed sub-categories for "{category}":
 {json.dumps(subcategories, indent=2)}
 
@@ -196,7 +223,7 @@ PROMPTS = {
 }
 
 # ─────────────────────────────────────────────────────────────
-# STEP 3 — LLM call helper with JSON enforcement + 1 retry
+# LLM call helper with JSON enforcement + 1 retry
 # ─────────────────────────────────────────────────────────────
 
 def call_llm(system_prompt: str, user_message: str) -> dict:
@@ -206,9 +233,9 @@ def call_llm(system_prompt: str, user_message: str) -> dict:
     """
     for attempt in range(2):
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",  # fast, free, and actively supported on Groq
-            temperature=0.1,       # low temperature → deterministic, structured output
-            max_tokens=256,        # short responses for classification tasks
+            model="llama-3.1-8b-instant",
+            temperature=0.1,
+            max_tokens=256,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": user_message},
@@ -228,9 +255,27 @@ def call_llm(system_prompt: str, user_message: str) -> dict:
                 f"Model did not return valid JSON after 2 attempts.\nRaw: {raw}"
             )
 
+# ─────────────────────────────────────────────────────────────
+# Helper function to check for multiple topics
+# ─────────────────────────────────────────────────────────────
+
+def has_multiple_topics(text: str) -> bool:
+    """
+    Analyzes text to detect if it contains multiple unrelated topics.
+    Returns True if multiple topics detected, False otherwise.
+    """
+    try:
+        result = call_llm(
+            system_prompt=VALIDATE_TOPICS_PROMPT,
+            user_message=f"Analyze this text:\n\n{text}",
+        )
+        return result.get("has_multiple_topics", False)
+    except Exception:
+        # If validation fails, assume single topic and proceed with classification
+        return False
 
 # ─────────────────────────────────────────────────────────────
-# STEP 4 — 2-call classification chain (Option B)
+# Call classification chain (Option 2)
 # ─────────────────────────────────────────────────────────────
 
 def classify_document(text: str, category_prompt: str, subcategory_builder) -> dict:
@@ -238,6 +283,7 @@ def classify_document(text: str, category_prompt: str, subcategory_builder) -> d
     Call 1: Determine category.
     Call 2: Determine sub-category constrained by the result of Call 1.
     Returns dict with category and sub_category.
+    Validates that text fits within expected classifications.
     """
     # --- Call 1: Category ---
     cat_result = call_llm(
@@ -249,12 +295,18 @@ def classify_document(text: str, category_prompt: str, subcategory_builder) -> d
     # Validate category
     if category not in TAXONOMY:
         # Find closest match (simple inclusion check)
+        found_match = False
         for allowed in TAXONOMY:
             if allowed.lower() in category.lower() or category.lower() in allowed.lower():
                 category = allowed
+                found_match = True
                 break
-        else:
-            category = CATEGORIES[0]   # fallback
+        
+        if not found_match:
+            raise ValueError(
+                f"Error: Text classification failed. "
+                f"Model returned '{category}' which is not in the expected categories: {CATEGORIES}"
+            )
 
     # --- Call 2: Sub-category (constrained) ---
     subcategory_prompt = subcategory_builder(category)
@@ -267,12 +319,18 @@ def classify_document(text: str, category_prompt: str, subcategory_builder) -> d
     # Validate sub-category
     allowed_subs = TAXONOMY[category]
     if sub_category not in allowed_subs:
+        found_match = False
         for allowed in allowed_subs:
             if allowed.lower() in sub_category.lower():
                 sub_category = allowed
+                found_match = True
                 break
-        else:
-            sub_category = allowed_subs[0]  # fallback
+        
+        if not found_match:
+            raise ValueError(
+                f"Error: Sub-category classification failed for category '{category}'. "
+                f"Model returned '{sub_category}' which is not in {allowed_subs}"
+            )
 
     return {"category": category, "sub_category": sub_category}
 
@@ -285,6 +343,7 @@ def load_documents(dataset_dir: str) -> list[dict]:
     """
     Reads all .txt files from the dataset directory.
     Returns a list of dicts: {document_name, text}
+    Includes empty files (they will be classified as ERROR).
     """
     pattern = os.path.join(dataset_dir, "*.txt")
     files = sorted(glob.glob(pattern))
@@ -297,6 +356,7 @@ def load_documents(dataset_dir: str) -> list[dict]:
         filename = Path(filepath).name
         with open(filepath, "r", encoding="utf-8") as f:
             text = f.read().strip()
+        
         documents.append({"document_name": filename, "text": text})
 
     return documents
@@ -309,6 +369,8 @@ def load_documents(dataset_dir: str) -> list[dict]:
 def batch_classify(documents: list[dict], category_prompt: str, subcategory_builder) -> list[dict]:
     """
     Classifies each document and returns a list of result dicts.
+    Handles empty documents as ERROR → "Document is empty".
+    Handles documents with multiple topics as ERROR → "Document contains multiple topics".
     """
     results = []
     total = len(documents)
@@ -319,21 +381,38 @@ def batch_classify(documents: list[dict], category_prompt: str, subcategory_buil
 
         print(f"  [{i:02d}/{total}] Classifying: {name} ...", end=" ", flush=True)
 
-        try:
-            classification = classify_document(text, category_prompt, subcategory_builder)
-            result = {
-                "document_name": name,
-                "category":      classification["category"],
-                "sub_category":  classification["sub_category"],
-            }
-            print(f"✅ {result['category']} → {result['sub_category']}")
-        except Exception as e:
+        # Check if document is empty
+        if not text:
             result = {
                 "document_name": name,
                 "category":      "ERROR",
-                "sub_category":  str(e),
+                "sub_category":  "Document is empty",
             }
-            print(f"❌ ERROR: {e}")
+            print(f" {result['category']} → {result['sub_category']}")
+        # Check if document has multiple topics
+        elif has_multiple_topics(text):
+            result = {
+                "document_name": name,
+                "category":      "ERROR",
+                "sub_category":  "Document contains multiple topics",
+            }
+            print(f" {result['category']} → {result['sub_category']}")
+        else:
+            try:
+                classification = classify_document(text, category_prompt, subcategory_builder)
+                result = {
+                    "document_name": name,
+                    "category":      classification["category"],
+                    "sub_category":  classification["sub_category"],
+                }
+                print(f" {result['category']} → {result['sub_category']}")
+            except Exception as e:
+                result = {
+                    "document_name": name,
+                    "category":      "ERROR",
+                    "sub_category":  str(e),
+                }
+                print(f" ERROR: {e}")
 
         results.append(result)
 
