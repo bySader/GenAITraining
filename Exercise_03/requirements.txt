@@ -1,0 +1,5 @@
+faiss-cpu>=1.8.0
+sentence-transformers>=3.0.0
+groq>=1.2.0
+python-dotenv==1.0.1
+numpy>=1.26.0
