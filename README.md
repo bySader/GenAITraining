@@ -8,6 +8,7 @@ A hands-on training repository for learning **Generative AI** fundamentals throu
 |---|--------|-------|-------|
 | 01 | [Exercise_01](./Exercise_01/) | Text Summarization with Structured JSON Output | Python · Groq · LLaMA3 |
 | 02 | [Exercise_02](./Exercise_02/) | Text Classification with Prompt Engineering | Python · Groq · LLaMA3 |
+| 03 | [Exercise_03](./Exercise_03/) | RAG Q&A System — FAISS + Embeddings + Grounded Answers | Python · Groq · FAISS · sentence-transformers |
 
 ## Prerequisites (Global)
 - **Python 3.10+**
