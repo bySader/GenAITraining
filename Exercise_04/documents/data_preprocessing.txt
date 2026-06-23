@@ -1,0 +1,103 @@
+Data Preprocessing for Machine Learning
+Author: Priya Patel
+Topic: Machine Learning
+
+Data preprocessing is the process of transforming raw data into a clean, structured format suitable for training machine learning models. It is often the most time-consuming step in the ML pipeline, accounting for 60-80% of a data scientist's time.
+
+WHY PREPROCESSING MATTERS
+--------------------------
+Raw data is often messy: it may contain missing values, outliers, inconsistent formatting, or irrelevant features. Poor data quality directly leads to poor model performance — garbage in, garbage out.
+
+
+HANDLING MISSING VALUES
+-----------------------
+
+Option 1: Remove rows with missing values
+  df.dropna()
+  Risk: Losing too many samples if many rows have missing values.
+
+Option 2: Imputation — fill missing values with:
+  - Mean/Median (for numerical features):
+      df['age'].fillna(df['age'].median(), inplace=True)
+  - Mode (for categorical features):
+      df['city'].fillna(df['city'].mode()[0], inplace=True)
+  - Forward/backward fill (for time series):
+      df.fillna(method='ffill')
+
+Option 3: Use algorithms that handle missing values natively (e.g., XGBoost).
+
+
+HANDLING OUTLIERS
+-----------------
+
+Detection methods:
+  - Z-score: flag values beyond 3 standard deviations from the mean
+  - IQR method: flag values below Q1 - 1.5*IQR or above Q3 + 1.5*IQR
+  - Visual: box plots, scatter plots
+
+Treatment:
+  - Remove the outlier row (if it is a data error)
+  - Cap/clip to a boundary value
+  - Use robust algorithms (e.g., tree-based) that are less sensitive to outliers
+
+
+FEATURE SCALING
+---------------
+
+Many ML algorithms (especially distance-based ones like KNN and SVM) are sensitive to feature scale. Two common methods:
+
+Min-Max Normalization (scales to [0, 1]):
+  x_scaled = (x - x_min) / (x_max - x_min)
+  from sklearn.preprocessing import MinMaxScaler
+
+Standardization (zero mean, unit variance):
+  x_scaled = (x - mean) / std_deviation
+  from sklearn.preprocessing import StandardScaler
+
+When to use each:
+  - Normalization: neural networks, image pixel values
+  - Standardization: most other algorithms, especially when outliers exist
+
+
+ENCODING CATEGORICAL VARIABLES
+--------------------------------
+
+Machine learning models require numerical input. Categorical variables must be encoded.
+
+Label Encoding: Assigns an integer to each category. Good for ordinal data.
+  from sklearn.preprocessing import LabelEncoder
+  le.fit_transform(['low', 'medium', 'high'])  -> [0, 2, 1]
+
+One-Hot Encoding: Creates a binary column for each category. Good for nominal data.
+  pd.get_dummies(df['color'])  ->  color_red, color_blue, color_green
+
+
+FEATURE ENGINEERING
+-------------------
+
+Feature engineering creates new features from existing ones to improve model performance.
+
+Examples:
+  - Extract year, month, day from a datetime column
+  - Calculate age from birth date
+  - Create interaction terms (e.g., price * quantity = revenue)
+  - Binning continuous variables into categories (e.g., age groups)
+  - TF-IDF or word embeddings for text features
+
+
+TRAIN/VALIDATION/TEST SPLIT
+-----------------------------
+
+Always split data before preprocessing to avoid data leakage.
+
+  from sklearn.model_selection import train_test_split
+
+  X_train, X_test, y_train, y_test = train_test_split(
+      X, y, test_size=0.2, random_state=42
+  )
+
+Fit preprocessing transformers ONLY on training data, then apply to validation/test:
+
+  scaler.fit(X_train)           # learn parameters from training set
+  X_train_scaled = scaler.transform(X_train)
+  X_test_scaled  = scaler.transform(X_test)  # apply same transformation

@@ -1,0 +1,115 @@
+Python Decorators Guide
+Author: Carlos Rivera
+Topic: Programming
+
+Decorators are a powerful and expressive feature in Python. A decorator is a function that takes another function as input and extends or alters its behavior without modifying the original function's source code.
+
+BASIC DECORATOR SYNTAX
+-----------------------
+A decorator is applied using the @ symbol before a function definition.
+
+Example:
+
+def my_decorator(func):
+    def wrapper(*args, **kwargs):
+        print("Before the function runs")
+        result = func(*args, **kwargs)
+        print("After the function runs")
+        return result
+    return wrapper
+
+@my_decorator
+def say_hello():
+    print("Hello!")
+
+say_hello()
+# Output:
+# Before the function runs
+# Hello!
+# After the function runs
+
+
+FUNCTOOLS WRAPS
+---------------
+When using decorators, always use functools.wraps to preserve the original function's metadata (name, docstring, etc.).
+
+import functools
+
+def my_decorator(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
+
+
+DECORATORS WITH ARGUMENTS
+--------------------------
+You can create decorators that accept arguments by adding another layer of nesting.
+
+def repeat(n):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for _ in range(n):
+                func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+@repeat(3)
+def greet():
+    print("Hello!")
+
+greet()
+# Prints "Hello!" three times
+
+
+COMMON BUILT-IN DECORATORS
+---------------------------
+Python provides several built-in decorators:
+
+- @staticmethod: Defines a method that does not receive 'self' or 'cls'.
+- @classmethod: Defines a method that receives the class (cls) as the first argument.
+- @property: Allows a method to be accessed like an attribute.
+
+Example of @property:
+
+class Temperature:
+    def __init__(self, celsius):
+        self._celsius = celsius
+
+    @property
+    def fahrenheit(self):
+        return self._celsius * 9/5 + 32
+
+t = Temperature(100)
+print(t.fahrenheit)  # 212.0
+
+
+PRACTICAL USE CASES
+--------------------
+1. Logging: Automatically log function calls and results.
+2. Timing: Measure execution time of functions.
+3. Caching: Cache results with functools.lru_cache.
+4. Authentication: Check permissions before executing a function.
+5. Retry logic: Retry a function on failure.
+
+Example - Timing decorator:
+
+import time
+
+def timer(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        end = time.perf_counter()
+        print(f"{func.__name__} ran in {end - start:.4f} seconds")
+        return result
+    return wrapper
+
+@timer
+def slow_function():
+    time.sleep(1)
+
+slow_function()
+# slow_function ran in 1.0012 seconds

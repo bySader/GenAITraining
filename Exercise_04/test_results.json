@@ -1,0 +1,57 @@
+[
+  {
+    "id": 1,
+    "scope": "in",
+    "question": "What are Python decorators and how do I use them?",
+    "answer": "Python decorators are a powerful and expressive feature in Python. A decorator is a function that takes another function as input and extends or alters its behavior without modifying the original function's source code.\n\n**Basic Decorator Syntax**\n\nA decorator is applied using the `@` symbol before a function definition. Here's an example:\n\n```python\ndef my_decorator(func):\n    def wrapper(*args, **kwargs):\n        print(\"Before the function runs\")\n        result = func(*args, **kwargs)\n        print(\"After the function runs\")\n        return result\n    return wrapper\n\n@my_decorator\ndef say_hello():\n    print(\"Hello!\")\n\nsay_hello()\n# Output:\n# Before the function runs\n# Hello!\n# After the function runs\n```\n\nIn this example, `my_decorator` is a function that takes `say_hello` as input and returns a new function called `wrapper`. When `say_hello` is called, it actually calls the `wrapper` function, which runs the original `say_hello` function and adds some extra behavior.\n\n**Using `functools.wraps`**\n\nWhen using decorators, it's a good practice to use `functools.wraps` to preserve the original function's metadata (name, docstring, etc.). Here's an example:\n\n```python\nimport functools\n\ndef my_decorator(func):\n    @functools.wraps(func)\n    def wrapper(*args, **kwargs):\n        return func(*args, **kwargs)\n    return wrapper\n\n@my_decorator\ndef say_hello():\n    \"\"\"Prints a greeting\"\"\"\n    print(\"Hello!\")\n\nprint(say_hello.__name__)  # Output: say_hello\nprint(say_hello.__doc__)   # Output: Prints a greeting\n```\n\n**Decorators with Arguments**\n\nYou can create decorators that accept arguments by adding another layer of nesting. Here's an example:\n\n```python\ndef repeat(n):\n    def decorator(func):\n        @functools.wraps(func)\n        def wrapper(*args, **kwargs):\n            for _ in range(n):\n                func(*args, **kwargs)\n        return wrapper\n    return decorator\n\n@repeat(3)\ndef greet():\n    print(\"Hello!\")\n\ngreet()\n# Output:\n# Hello!\n# Hello!\n# Hello!\n```\n\nIn this example, `repeat` is a function that takes an argument `n` and returns a decorator function. The decorator function takes `greet` as input and returns a new function called `wrapper`. When `greet` is called, it actually calls the `wrapper` function, which runs the original `greet` function `n` times.",
+    "sources": [
+      "kanban_guide.docx",
+      "python_intro.md",
+      "python_decorators.txt"
+    ],
+    "in_scope_detected": true
+  },
+  {
+    "id": 2,
+    "scope": "in",
+    "question": "Explain the four pillars of object-oriented programming.",
+    "answer": "The four pillars of object-oriented programming (OOP) are:\n\n1. **Encapsulation**: This pillar involves bundling data and methods that operate on the data into a single unit, called a class. Encapsulation helps to hide the internal details of an object from the outside world, making it harder for other parts of the program to access or modify the object's internal state directly. This helps to improve code organization, security, and maintainability.\n\n   Example:\n   ```python\nclass BankAccount:\n    def __init__(self, balance: float):\n        self.__balance = balance  # private attribute\n\n    def deposit(self, amount: float):\n        self.__balance += amount\n\n    def get_balance(self) -> float:\n        return self.__balance\n```\n\n2. **Inheritance**: This pillar allows a class to inherit attributes and methods from another class. The child class inherits all the properties and behavior of the parent class and can also add new properties or override the ones inherited from the parent class. Inheritance promotes code reuse and helps to create a hierarchy of related classes.\n\n   Example:\n   ```python\nclass Animal:\n    def speak(self):\n        return \"Some sound\"\n\nclass Dog(Animal):\n    def speak(self):\n        return \"Woof!\"\n\nclass Cat(Animal):\n    def speak(self):\n        return \"Meow!\"\n```\n\n3. **Polymorphism**: This pillar allows objects of different classes to be treated as objects of a common superclass. Polymorphism enables you to write methods that can work with different types of objects, making your code more flexible and reusable. There are two types of polymorphism: method overriding and method overloading.\n\n   Example:\n   ```python\nanimals = [Dog(), Cat()]\nfor animal in animals:\n    print(animal.speak())  # Woof! then Meow!\n```\n\n4. **Abstraction**: This pillar involves hiding the implementation details of an object from the outside world and showing only the essential features. Abstraction helps to reduce complexity and improve code modularity by allowing you to focus on the interface of an object rather than its internal workings.\n\n   Example:\n   ```python\nfrom abc import ABC, abstractmethod\n\nclass Shape(ABC):\n    @abstractmethod\n    def area(self) -> float:\n        pass\n\nclass Circle(Shape):\n    def __init__(self, radius: float):\n        self.radius = radius\n\n    def area(self) -> float:\n        return 3.14159 * self.radius ** 2\n```",
+    "sources": [
+      "database_design.pdf",
+      "python_intro.md",
+      "python_oop.md"
+    ],
+    "in_scope_detected": true
+  },
+  {
+    "id": 3,
+    "scope": "in",
+    "question": "What is the difference between Git merge and Git rebase?",
+    "answer": "I don't know, that is not part of my context.",
+    "sources": [
+      "ci_cd_pipeline.json",
+      "git_workflow.txt"
+    ],
+    "in_scope_detected": true
+  },
+  {
+    "id": 4,
+    "scope": "out",
+    "question": "What is the capital of France?",
+    "answer": "I don't know, that is not part of my context.",
+    "sources": [
+      "ml_fundamentals.pdf",
+      "ci_cd_pipeline.json",
+      "ml_fundamentals.txt"
+    ],
+    "in_scope_detected": true
+  },
+  {
+    "id": 5,
+    "scope": "out",
+    "question": "Who won the FIFA World Cup in 2022?",
+    "answer": "I'm sorry, that question is outside the scope of my knowledge base. I can only answer questions about Programming, DevOps, Project Management, Machine Learning, and Databases.",
+    "sources": [],
+    "in_scope_detected": false
+  }
+]

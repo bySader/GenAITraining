@@ -1,0 +1,32 @@
+{
+  "document_name": "nosql_overview",
+  "author": "Sandra Kim",
+  "topic": "Databases",
+  "title": "NoSQL Databases Overview",
+  "sections": [
+    {
+      "heading": "What is NoSQL?",
+      "content": "NoSQL (Not Only SQL) databases are non-relational databases designed for large-scale data storage and for massively parallel, high-performance data processing across a large number of commodity servers. Unlike relational databases, NoSQL databases do not require a fixed schema and are built to scale horizontally."
+    },
+    {
+      "heading": "Types of NoSQL Databases",
+      "content": "1. Document Stores: Store data as JSON-like documents. Each document can have a different structure. Examples: MongoDB, CouchDB. Use cases: content management, catalogs, user profiles. 2. Key-Value Stores: Simplest form — data stored as key-value pairs. Examples: Redis, DynamoDB, Memcached. Use cases: caching, session management, leaderboards. 3. Column-Family Stores: Data stored in columns rather than rows, optimized for read/write of large datasets. Examples: Apache Cassandra, HBase. Use cases: time-series data, IoT, analytics. 4. Graph Databases: Data stored as nodes and edges representing entities and relationships. Examples: Neo4j, Amazon Neptune. Use cases: social networks, fraud detection, recommendation engines."
+    },
+    {
+      "heading": "NoSQL vs SQL",
+      "content": "SQL databases are best when: data is structured and relational, ACID compliance is required, complex joins and transactions are needed. NoSQL databases are best when: data is unstructured or semi-structured, horizontal scalability is needed, high write throughput is required, the schema changes frequently."
+    },
+    {
+      "heading": "MongoDB Basics",
+      "content": "MongoDB is the most popular document store. Data is stored in BSON (Binary JSON) format. Collections are equivalent to SQL tables. Documents are equivalent to SQL rows but can have nested structures. Key operations: insertOne(), find(), updateOne(), deleteOne(). Example: db.users.insertOne({name: 'Alice', age: 30, hobbies: ['reading', 'coding']}). MongoDB supports indexes, aggregation pipelines, and transactions (since v4.0)."
+    },
+    {
+      "heading": "Redis Basics",
+      "content": "Redis is an in-memory key-value store known for extremely fast read/write operations (sub-millisecond latency). Supports data structures: Strings, Lists, Sets, Sorted Sets, Hashes, Streams. Common use cases: Caching database query results, Session storage for web applications, Rate limiting APIs, Pub/Sub messaging, Leaderboards using Sorted Sets. Redis can persist data to disk using RDB snapshots or AOF (Append Only File) logging."
+    },
+    {
+      "heading": "CAP Theorem",
+      "content": "The CAP theorem states that a distributed system can only guarantee two of the following three properties simultaneously: Consistency (C): Every read receives the most recent write. Availability (A): Every request receives a response (not necessarily the most recent data). Partition Tolerance (P): The system continues to operate despite network partitions. Most NoSQL databases choose AP (available + partition-tolerant) or CP (consistent + partition-tolerant), sacrificing strong consistency for scalability."
+    }
+  ]
+}

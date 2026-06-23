@@ -1,0 +1,111 @@
+Git Workflow Guide
+Author: Maria Lopez
+Topic: DevOps
+
+Git is a distributed version control system that tracks changes in source code during software development. This guide covers the most important Git commands and workflows used in modern software teams.
+
+BASIC GIT COMMANDS
+------------------
+
+Initialize a repository:
+  git init
+
+Clone an existing repository:
+  git clone https://github.com/user/repo.git
+
+Check status of working directory:
+  git status
+
+Stage changes for commit:
+  git add filename.py         # stage a specific file
+  git add .                   # stage all changes
+
+Commit staged changes:
+  git commit -m "feat: add login functionality"
+
+View commit history:
+  git log --oneline
+
+
+BRANCHING STRATEGY
+------------------
+Branching allows teams to work on features in isolation.
+
+  git branch feature/user-auth    # create a new branch
+  git checkout feature/user-auth  # switch to the branch
+  git checkout -b feature/new-ui  # create and switch in one step
+
+Merge a branch into main:
+  git checkout main
+  git merge feature/user-auth
+
+Delete a branch after merge:
+  git branch -d feature/user-auth
+
+
+GIT FLOW WORKFLOW
+-----------------
+Git Flow is a popular branching model with specific branches:
+
+- main: Production-ready code only
+- develop: Integration branch for features
+- feature/*: New features (branch off develop)
+- release/*: Preparation for a new release
+- hotfix/*: Emergency fixes to production
+
+Typical flow:
+  1. Branch from develop: git checkout -b feature/my-feature develop
+  2. Commit changes
+  3. Merge back to develop
+  4. Create a release branch from develop
+  5. Merge release to main and tag it
+  6. Merge release back to develop
+
+
+REMOTE REPOSITORIES
+--------------------
+  git remote add origin https://github.com/user/repo.git
+  git push origin main           # push local commits to remote
+  git pull origin main           # fetch and merge remote changes
+  git fetch origin               # fetch without merging
+
+
+RESOLVING CONFLICTS
+-------------------
+When two branches modify the same line, a conflict occurs.
+Git marks the conflict in the file:
+
+  <<<<<<< HEAD
+  your changes
+  =======
+  incoming changes
+  >>>>>>> feature/branch
+
+Steps to resolve:
+  1. Edit the conflicting file to keep the correct code
+  2. git add conflicting_file.py
+  3. git commit
+
+
+COMMIT MESSAGE CONVENTIONS
+---------------------------
+Follow Conventional Commits for clarity:
+
+  feat:     A new feature
+  fix:      A bug fix
+  docs:     Documentation changes
+  style:    Code formatting (no logic change)
+  refactor: Code refactoring
+  test:     Adding or updating tests
+  chore:    Build process or tooling changes
+
+Example: git commit -m "fix: resolve null pointer in user service"
+
+
+USEFUL TIPS
+-----------
+- git stash: temporarily save uncommitted changes
+- git stash pop: restore stashed changes
+- git rebase: reapply commits on top of another branch (use with care)
+- git tag v1.0.0: create a version tag
+- git diff: show differences between working directory and staging area

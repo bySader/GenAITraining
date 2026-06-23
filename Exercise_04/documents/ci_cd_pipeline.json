@@ -1,0 +1,36 @@
+{
+  "document_name": "ci_cd_pipeline",
+  "author": "Alex Johnson",
+  "topic": "DevOps",
+  "title": "CI/CD Pipeline Guide",
+  "sections": [
+    {
+      "heading": "What is CI/CD?",
+      "content": "CI/CD stands for Continuous Integration and Continuous Delivery (or Deployment). It is a set of practices that automate the building, testing, and deployment of software. CI ensures that code changes are automatically tested when merged. CD automates the release process to staging or production environments."
+    },
+    {
+      "heading": "Continuous Integration (CI)",
+      "content": "CI is the practice of frequently merging developer code into a shared repository, followed by automated builds and tests. Key steps in a CI pipeline: 1) Code push triggers the pipeline. 2) Dependencies are installed. 3) Unit tests run. 4) Code quality checks (linting, formatting) run. 5) Build artifacts are created. Benefits: early bug detection, consistent code quality, faster feedback loops."
+    },
+    {
+      "heading": "Continuous Delivery (CD)",
+      "content": "CD extends CI by automatically deploying tested code to a staging environment. The production deployment requires a manual approval step. This ensures every build is deployable, reducing the risk of large, infrequent releases."
+    },
+    {
+      "heading": "Continuous Deployment",
+      "content": "Continuous Deployment goes one step further than Continuous Delivery by automatically deploying every passing build directly to production, without manual approval. This requires a very mature testing suite and monitoring setup."
+    },
+    {
+      "heading": "Popular CI/CD Tools",
+      "content": "GitHub Actions: Integrated directly into GitHub repositories. Workflows are defined in YAML files in the .github/workflows directory. Jenkins: An open-source automation server widely used in enterprise environments. GitLab CI/CD: Built into GitLab with native Docker support. Azure DevOps Pipelines: Microsoft's CI/CD platform with tight Azure integration. CircleCI: Cloud-native CI/CD with fast build times."
+    },
+    {
+      "heading": "Example GitHub Actions Workflow",
+      "content": "name: Python CI. on: [push, pull_request]. jobs: test: runs-on: ubuntu-latest. steps: - uses: actions/checkout@v4. - uses: actions/setup-python@v5 with python-version: 3.11. - run: pip install -r requirements.txt. - run: pytest tests/. This workflow installs dependencies and runs tests on every push and pull request."
+    },
+    {
+      "heading": "Best Practices",
+      "content": "1. Keep pipelines fast — aim for under 10 minutes. 2. Fail fast — run the cheapest checks first (linting before tests). 3. Use caching for dependencies to speed up builds. 4. Store secrets in environment variables or a secrets manager, never in code. 5. Use branch protection rules — require CI to pass before merging. 6. Monitor deployment success with health checks and rollback strategies."
+    }
+  ]
+}

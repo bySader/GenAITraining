@@ -1,0 +1,99 @@
+Machine Learning Fundamentals
+Author: David Chen
+Topic: Machine Learning
+
+Machine learning (ML) is a branch of artificial intelligence (AI) that enables systems to learn from data and improve their performance on tasks without being explicitly programmed. Instead of writing rules manually, ML algorithms discover patterns in data.
+
+TYPES OF MACHINE LEARNING
+--------------------------
+
+1. Supervised Learning
+   The algorithm learns from labeled training data (input-output pairs).
+   Goal: Learn a mapping function from inputs to outputs.
+   Examples:
+   - Classification: Predict a category (spam/not spam, cat/dog)
+   - Regression: Predict a continuous value (house price, temperature)
+   Common algorithms: Linear Regression, Logistic Regression, Decision Trees, Random Forest, SVM, Neural Networks
+
+2. Unsupervised Learning
+   The algorithm finds patterns in unlabeled data.
+   Goal: Discover hidden structure in data.
+   Examples:
+   - Clustering: Group similar data points (K-Means, DBSCAN)
+   - Dimensionality Reduction: Reduce features while preserving information (PCA, t-SNE)
+   - Anomaly Detection: Find unusual data points
+
+3. Reinforcement Learning
+   An agent learns by interacting with an environment and receiving rewards or penalties.
+   Goal: Learn a policy that maximizes cumulative reward.
+   Examples: Game playing (AlphaGo), robotics, autonomous driving.
+
+
+THE ML PIPELINE
+---------------
+
+Step 1: Problem Definition
+  Define what you want to predict and what data you have.
+
+Step 2: Data Collection
+  Gather relevant, representative data from reliable sources.
+
+Step 3: Data Preprocessing
+  Handle missing values, outliers, encoding categorical variables,
+  and scaling numerical features.
+
+Step 4: Exploratory Data Analysis (EDA)
+  Visualize data distributions, correlations, and class imbalances.
+
+Step 5: Feature Engineering
+  Select or create features that are most predictive.
+
+Step 6: Model Selection and Training
+  Choose an appropriate algorithm and train on the training set.
+
+Step 7: Model Evaluation
+  Evaluate on held-out test data using appropriate metrics.
+
+Step 8: Hyperparameter Tuning
+  Optimize model parameters (e.g., Grid Search, Random Search, Bayesian Optimization).
+
+Step 9: Deployment
+  Package and deploy the model as a service (API, batch job, etc.).
+
+
+KEY EVALUATION METRICS
+----------------------
+
+For Classification:
+  - Accuracy: (TP + TN) / Total
+  - Precision: TP / (TP + FP) — how many predicted positives are correct
+  - Recall: TP / (TP + FN) — how many actual positives are found
+  - F1-Score: Harmonic mean of Precision and Recall
+  - ROC-AUC: Area under the ROC curve
+
+For Regression:
+  - MSE (Mean Squared Error): Average of squared differences
+  - RMSE (Root MSE): Square root of MSE — same units as target
+  - MAE (Mean Absolute Error): Average of absolute differences
+  - R-squared (R2): Proportion of variance explained by the model
+
+
+OVERFITTING AND UNDERFITTING
+-----------------------------
+
+Overfitting: Model performs well on training data but poorly on new data.
+  Causes: Too complex model, too little data, too many features.
+  Solutions: Regularization (L1/L2), Dropout, Cross-validation, More data.
+
+Underfitting: Model is too simple to capture the underlying patterns.
+  Causes: Too simple model, insufficient features.
+  Solutions: Use more complex model, add relevant features, reduce regularization.
+
+
+POPULAR ML LIBRARIES IN PYTHON
+--------------------------------
+  - scikit-learn: General ML algorithms, preprocessing, evaluation
+  - TensorFlow / Keras: Deep learning framework by Google
+  - PyTorch: Deep learning framework by Meta (most popular in research)
+  - XGBoost / LightGBM: Gradient boosting frameworks
+  - Pandas / NumPy: Data manipulation and numerical computing

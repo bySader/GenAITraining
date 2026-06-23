@@ -1,0 +1,87 @@
+Neural Networks and Deep Learning
+Author: David Chen
+Topic: Machine Learning
+
+Neural networks are computing systems loosely inspired by the biological neural networks in the human brain. They are the foundation of modern deep learning and power applications like image recognition, natural language processing, and generative AI.
+
+STRUCTURE OF A NEURAL NETWORK
+-------------------------------
+
+A neural network consists of layers of interconnected nodes (neurons):
+
+Input Layer:   Receives raw input features
+Hidden Layers: Learn intermediate representations through transformations
+Output Layer:  Produces the final prediction
+
+Each connection has a weight. Each neuron applies an activation function to the weighted sum of its inputs plus a bias:
+
+  output = activation(W * x + b)
+
+
+ACTIVATION FUNCTIONS
+--------------------
+
+ReLU (Rectified Linear Unit): f(x) = max(0, x)
+  Most common in hidden layers. Fast, avoids vanishing gradient.
+
+Sigmoid: f(x) = 1 / (1 + exp(-x))
+  Outputs between 0 and 1. Used for binary classification output.
+
+Softmax: Converts a vector of values to probabilities summing to 1.
+  Used for multi-class classification output.
+
+Tanh: f(x) = (exp(x) - exp(-x)) / (exp(x) + exp(-x))
+  Outputs between -1 and 1. Used in RNNs.
+
+
+HOW NEURAL NETWORKS LEARN: BACKPROPAGATION
+-------------------------------------------
+
+1. Forward Pass: Input flows through the network, generating a prediction.
+2. Loss Computation: A loss function measures how wrong the prediction is.
+   - Binary Cross-Entropy (classification)
+   - Categorical Cross-Entropy (multi-class)
+   - MSE (regression)
+3. Backward Pass: Gradients of the loss are computed with respect to each weight using the chain rule.
+4. Weight Update: Optimizer updates weights to reduce the loss.
+   - SGD (Stochastic Gradient Descent)
+   - Adam (Adaptive Moment Estimation) - most popular
+
+
+COMMON ARCHITECTURES
+--------------------
+
+Feedforward Neural Networks (FNN): Data flows in one direction (input -> output). Good for tabular data.
+
+Convolutional Neural Networks (CNN): Use convolutional layers to extract spatial features from images. Used for image classification, object detection.
+
+Recurrent Neural Networks (RNN): Have loops, allowing information to persist across time steps. Used for sequential data like text and time series. LSTM and GRU are improved variants that solve the vanishing gradient problem.
+
+Transformers: Use self-attention mechanisms to capture relationships in sequences without recurrence. Power modern NLP models like BERT, GPT, and LLaMA.
+
+
+HYPERPARAMETERS
+---------------
+
+  - Learning rate: Controls the step size during weight updates. Too high = diverge. Too low = slow convergence.
+  - Batch size: Number of samples processed before updating weights.
+  - Number of epochs: Number of complete passes through the training data.
+  - Number of layers / neurons: Determines model capacity.
+  - Dropout rate: Fraction of neurons randomly set to 0 during training (prevents overfitting).
+
+
+REGULARIZATION TECHNIQUES
+--------------------------
+
+  Dropout: Randomly deactivates neurons during training.
+  Batch Normalization: Normalizes layer inputs, stabilizing and accelerating training.
+  L2 Regularization (Weight Decay): Adds penalty proportional to squared weights.
+  Early Stopping: Halt training when validation loss stops improving.
+
+
+DEEP LEARNING FRAMEWORKS
+-------------------------
+
+  PyTorch: Dynamic computation graph, preferred in research. Flexible and Pythonic.
+  TensorFlow / Keras: Static computation graph (TF 1.x), eager mode in TF 2.x. Keras provides high-level API. Good for production deployment.
+  JAX: High-performance numerical computing from Google. Growing in research.
