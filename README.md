@@ -9,7 +9,8 @@ A hands-on training repository for learning **Generative AI** fundamentals throu
 | 01 | [Exercise_01](./Exercise_01/) | Text Summarization with Structured JSON Output | Python · Groq · LLaMA3 |
 | 02 | [Exercise_02](./Exercise_02/) | Text Classification with Prompt Engineering | Python · Groq · LLaMA3 |
 | 03 | [Exercise_03](./Exercise_03/) | RAG Q&A System — FAISS + Embeddings + Grounded Answers | Python · Groq · FAISS · sentence-transformers |
-| 04 | [Exercise_04](./Exercise_04/) | Advanced RAG: Multi-Format Documents + Metadata + Ranking/Re-ranking | Python · Groq · FAISS · sentence-transformers |
+| 04 | [Exercise_04](./Exercise_04/) | Advanced RAG — Multi-Format Docs + Metadata + Re-ranking | Python · Groq · FAISS · BM25 · pypdf · python-docx |
+| 05 | [Exercise_05](./Exercise_05/) | Tool Calling Agent — 7 Tools + Multi-Tool + Agentic Loop | Python · Groq · Function Calling |
 
 ## Prerequisites (Global)
 - **Python 3.10+**
