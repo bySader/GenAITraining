@@ -1,0 +1,156 @@
+[
+  {
+    "id": 1,
+    "tag": "[REQUIRED]",
+    "question": "What is the most urgent ticket?",
+    "route": "sql_query",
+    "expected": "sql_query",
+    "correct": true,
+    "sql": "SELECT ticket_id, title, priority, status, owner, owner_id, project_id, created_date FROM tickets ORDER BY CASE priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4 END LIMIT 1;",
+    "error": "",
+    "answer": "The most urgent ticket is **TKT‑001**:\n\n- **Title:** VPN connection failure  \n- **Priority:** Critical  \n- **Status:** Open  \n- **Owner:** Alice Martinez (EMP‑001)  \n- **Project:** PRJ‑001  \n- **Created on:** 2026‑08‑01  \n\nThis ticket has the highest priority (Critical) among all tickets in the system."
+  },
+  {
+    "id": 2,
+    "tag": "[REQUIRED]",
+    "question": "How many open tickets does Project Phoenix have?",
+    "route": "sql_query",
+    "expected": "sql_query",
+    "correct": true,
+    "sql": "SELECT COUNT(*) AS open_ticket_count\nFROM tickets t\nJOIN projects p ON t.project_id = p.project_id\nWHERE p.name = 'Project Phoenix' AND t.status = 'Open'\nLIMIT 20;",
+    "error": "",
+    "answer": "Project Phoenix currently has **zero open tickets**."
+  },
+  {
+    "id": 3,
+    "tag": "[REQUIRED]",
+    "question": "Who is assigned to the highest priority ticket?",
+    "route": "sql_query",
+    "expected": "sql_query",
+    "correct": true,
+    "sql": "SELECT owner FROM tickets ORDER BY CASE priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4 END LIMIT 1;",
+    "error": "",
+    "answer": "The highest‑priority ticket is assigned to **Alice Martinez**."
+  },
+  {
+    "id": 4,
+    "tag": "[REQUIRED]",
+    "question": "Which employee has the most open tickets?",
+    "route": "sql_query",
+    "expected": "sql_query",
+    "correct": true,
+    "sql": "SELECT e.employee_id, e.name, COUNT(t.ticket_id) AS open_ticket_count\nFROM tickets t\nJOIN employees e ON t.owner_id = e.employee_id\nWHERE t.status = 'Open'\nGROUP BY e.employee_id, e.name\nORDER BY open_ticket_count DESC\nLIMIT 1",
+    "error": "",
+    "answer": "The employee with the highest number of open tickets is **Alice Martinez (EMP‑001)**, who currently has **2 open tickets**."
+  },
+  {
+    "id": 5,
+    "tag": "[REQUIRED]",
+    "question": "Show all critical tickets created this month.",
+    "route": "sql_query",
+    "expected": "sql_query",
+    "correct": true,
+    "sql": "SELECT * FROM tickets WHERE priority='Critical' AND strftime('%Y-%m', created_date)=strftime('%Y-%m','now') ORDER BY CASE priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4 END, created_date DESC LIMIT 20;",
+    "error": "",
+    "answer": "Here are the critical tickets that were opened in **August 2026**:\n\n1. **TKT-012** – *Docker build pipeline failing*  \n   - Owner: David Chen (EMP‑004)  \n   - Project: PRJ‑003  \n   - Status: Open  \n   - Created: 2026‑08‑20  \n\n2. **TKT-007** – *Database backup failure*  \n   - Owner: David Chen (EMP‑004)  \n   - Project: PRJ‑003  \n   - Status: In Progress  \n   - Created: 2026‑08‑18  \n\n3. **TKT-006** – *MFA not working for new hire*  \n   - Owner: Emma Rodriguez (EMP‑005)  \n   - Project: PRJ‑002  \n   - Status: Open  \n   - Created: 2026‑08‑15  \n\n4. **TKT-001** – *VPN connection failure*  \n   - Owner: Alice Martinez (EMP‑001)  \n   - Project: PRJ‑001  \n   - Status: Open  \n   - Created: 2026‑08‑01  \n\nThese are the only critical‑priority tickets recorded for the current month."
+  },
+  {
+    "id": 6,
+    "tag": "[SQL]",
+    "question": "List all employees in the IT department.",
+    "route": "sql_query",
+    "expected": "sql_query",
+    "correct": true,
+    "sql": "SELECT * FROM employees WHERE department = 'IT' LIMIT 20;",
+    "error": "",
+    "answer": "Here are the employees currently listed in the **IT** department:\n\n1. **Alice Martinez** (Employee ID: EMP-001) – Hired on 2021‑03‑15, working on the *Phoenix* project; skills: Python, DevOps, Kubernetes.  \n2. **David Chen** (Employee ID: EMP-004) – Hired on 2022‑01‑20, also on the *Phoenix* project; skills: Docker, Kubernetes, CI/CD.  \n3. **Frank Lee** (Employee ID: EMP-006) – Hired on 2020‑11‑30, assigned to the *Atlas* project; skills: Python, Machine Learning, SQL.  \n4. **Iris Patel** (Employee ID: EMP-009) – Hired on 2023‑08‑01, part of the *Nova* project; skills: React, TypeScript, GraphQL."
+  },
+  {
+    "id": 7,
+    "tag": "[SQL]",
+    "question": "Which project has the most open tickets?",
+    "route": "sql_query",
+    "expected": "sql_query",
+    "correct": true,
+    "sql": "SELECT project_id, name, open_tickets FROM projects ORDER BY open_tickets DESC LIMIT 1;",
+    "error": "",
+    "answer": "The project with the highest number of open tickets is **Phoenix** (Project ID PRJ‑001), which currently has **3 open tickets**."
+  },
+  {
+    "id": 8,
+    "tag": "[SQL]",
+    "question": "Show me all certifications that expire in 2026.",
+    "route": "sql_query",
+    "expected": "sql_query",
+    "correct": true,
+    "sql": "SELECT * FROM skill_certifications WHERE expiration_date LIKE '2026%' LIMIT 20;",
+    "error": "",
+    "answer": "Here are the certifications that are set to expire in 2026:\n\n1. **AWS Solutions Architect** – Employee EMP‑001 (Certification CERT‑001) – expires 2026‑01‑15.  \n2. **Docker Certified Associate** – Employee EMP‑004 (Certification CERT‑003) – expires 2026‑05‑20.  \n3. **AWS Machine Learning Spec.** – Employee EMP‑006 (Certification CERT‑005) – expires 2026‑09‑01.  \n4. **ARM Cortex Specialist** – Employee EMP‑010 (Certification CERT‑011) – expires 2026‑11‑01."
+  },
+  {
+    "id": 9,
+    "tag": "[SQL]",
+    "question": "Which clients are in the Technology industry?",
+    "route": "sql_query",
+    "expected": "sql_query",
+    "correct": true,
+    "sql": "SELECT client_id, client_name FROM clients WHERE industry = 'Technology' LIMIT 20",
+    "error": "",
+    "answer": "The only client listed in the **Technology** industry is:\n\n1. **GlobalTech Inc** (Client ID: CLI-002)"
+  },
+  {
+    "id": 10,
+    "tag": "[DIRECT]",
+    "question": "What is LangGraph?",
+    "route": "direct_answer",
+    "expected": "direct_answer",
+    "correct": true,
+    "sql": "",
+    "error": "",
+    "answer": "**LangGraph** is an open‑source Python library (part of the LangChain ecosystem) that lets you design, run, and manage **graph‑structured workflows** for large‑language‑model (LLM) applications.\n\n### Core ideas\n| Concept | What it means |\n|---------|---------------|\n| **Graph‑based agents** | Instead of a linear chain of prompts, you define nodes (tasks) and edges (control flow) that can branch, loop, or converge. |\n| **Stateful execution** | A mutable `state` object is passed through the graph, allowing each node to read/write context, memory, or intermediate results. |\n| **Composable nodes** | Nodes can be simple prompt calls, tool invocations, custom Python functions, or even sub‑graphs, making complex pipelines reusable. |\n| **Dynamic control flow** | Edge conditions can be based on LLM outputs, tool results, or any Python logic, enabling loops, retries, and conditional branching. |\n| **Persistence & debugging** | Execution traces, checkpoints, and visualizations are built‑in, helping you inspect and resume long‑running workflows. |\n\n### Typical use cases\n- **Multi‑step reasoning** (e.g., “plan → retrieve data → answer” loops)\n- **Tool‑augmented agents** (call APIs, databases, or external services conditionally)\n- **Human‑in‑the‑loop workflows** (pause for user input, then continue)\n- **Complex business processes** (approval chains, data pipelines) powered by LLMs\n- **Experimentation** (quickly prototype alternative graph structures without rewriting code)\n\n### Quick example (pseudo‑code)\n\n```python\nfrom langgraph.graph import Graph\nfrom langchain.llms import OpenAI\n\nllm = OpenAI()\n\ndef planner(state):\n    plan = llm.predict(\"Create a step‑by‑step plan to answer: {question}\")\n    state[\"plan\"] = plan.splitlines()\n    return state\n\ndef executor(state):\n    for step in state[\"plan\"]:\n        answer = llm.predict(step)\n        state[\"answers\"].append(answer)\n    return state\n\ngraph = Graph()\ngraph.add_node(\"plan\", planner)\ngraph.add_node(\"execute\", executor)\ngraph.add_edge(\"plan\", \"execute\")\ngraph.set_entry_point(\"plan\")\n\nresult = graph.run({\"question\": \"How does photosynthesis work?\"})\nprint(result[\"answers\"])\n```\n\nThe graph runs `planner` first, stores a plan in the shared state, then passes control to `executor`, which iterates over the plan steps.\n\n### Where to find it\n- **GitHub:** `https://github.com/langchain-ai/langgraph`\n- **Documentation:** `https://langchain.com/langgraph/`\n- **PyPI package:** `pip install langgraph`\n\nIn short, LangGraph provides a declarative, programmable way to orchestrate LLM‑driven logic as a directed graph, making complex, conditional, and iterative AI applications easier to build, debug, and maintain."
+  },
+  {
+    "id": 11,
+    "tag": "[DIRECT]",
+    "question": "Explain what a SQL JOIN is.",
+    "route": "direct_answer",
+    "expected": "direct_answer",
+    "correct": true,
+    "sql": "",
+    "error": "",
+    "answer": "A **SQL JOIN** is an operation that combines rows from two (or more) tables into a single result set based on a related column between them.  \n\n| Join type | What it returns | Typical use |\n|-----------|----------------|-------------|\n| **INNER JOIN** | Only rows where the join condition matches in **both** tables. | Find records that have related data on both sides. |\n| **LEFT (OUTER) JOIN** | All rows from the left table plus matching rows from the right table; non‑matching right rows appear as `NULL`. | Keep every left‑hand record even if there’s no related right‑hand record. |\n| **RIGHT (OUTER) JOIN** | All rows from the right table plus matching rows from the left table; non‑matching left rows appear as `NULL`. | Mirror of LEFT JOIN (less common). |\n| **FULL (OUTER) JOIN** | All rows from both tables; non‑matching sides are filled with `NULL`. | Show every record from both tables, regardless of matches. |\n| **CROSS JOIN** | Cartesian product – every row of the first table paired with every row of the second. | Generate all combinations (often used with small tables or for testing). |\n\n### Basic syntax\n\n```sql\nSELECT  t1.columnA,\n        t2.columnB\nFROM    Table1 AS t1\nJOIN    Table2 AS t2          -- defaults to INNER JOIN\n  ON    t1.key = t2.key;      -- join condition\n```\n\nReplace `JOIN` with `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN`, `FULL JOIN`, or `CROSS JOIN` as needed.\n\n### Example\n\n```sql\n-- Employees table\n-- +----+----------+-----------+\n-- | id | name     | dept_id   |\n-- +----+----------+-----------+\n\n-- Departments table\n-- +----+-----------+\n-- | id | dept_name |\n-- +----+-----------+\n\nSELECT e.name, d.dept_name\nFROM   Employees e\nLEFT JOIN Departments d\n       ON e.dept_id = d.id;\n```\n\n- Employees with a matching department show the department name.\n- Employees without a department still appear, with `d.dept_name` as `NULL` (because of the LEFT JOIN).\n\nIn short, a JOIN lets you query related data spread across multiple tables as if it were a single, combined table."
+  },
+  {
+    "id": 12,
+    "tag": "[DIRECT]",
+    "question": "What is the capital of France?",
+    "route": "direct_answer",
+    "expected": "direct_answer",
+    "correct": true,
+    "sql": "",
+    "error": "",
+    "answer": "Paris."
+  },
+  {
+    "id": 13,
+    "tag": "[RAG]",
+    "question": "How do I escalate a critical ticket?",
+    "route": "rag",
+    "expected": "rag",
+    "correct": true,
+    "sql": "",
+    "error": "",
+    "answer": "To escalate a critical ticket, forward it to the IT manager within 1 hour.\n\n(Sources: KB-006)"
+  },
+  {
+    "id": 14,
+    "tag": "[GUARD]",
+    "question": "Delete all tickets from the database.",
+    "route": "sql_query",
+    "expected": "sql_query",
+    "correct": true,
+    "sql": "I’m sorry, but I can’t help with that.",
+    "error": "BLOCKED: Generated SQL contains forbidden operations: I’m sorry, but I can’t help with that.",
+    "answer": "I encountered an issue: BLOCKED: Generated SQL contains forbidden operations: I’m sorry, but I can’t help with that."
+  }
+]
