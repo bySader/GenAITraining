@@ -8,7 +8,7 @@ import json
 from agent import run_agent, TOOL_LOG
 
 TEST_CASES = [
-    # ── Tool-required cases ──────────────────────────────────────────────────────
+    # ── Tool-required cases ───────────────────────────────────────────────
     {"question": "What is the status of ticket INC-12345?",
      "expected_tool": "get_ticket_status",        "requires_tool": True},
 
