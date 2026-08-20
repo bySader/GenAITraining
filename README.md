@@ -11,6 +11,7 @@ A hands-on training repository for learning **Generative AI** fundamentals throu
 | 03 | [Exercise_03](./Exercise_03/) | RAG Q&A System — FAISS + Embeddings + Grounded Answers | Python · Groq · FAISS · sentence-transformers |
 | 04 | [Exercise_04](./Exercise_04/) | Advanced RAG — Multi-Format Docs + Metadata + Re-ranking | Python · Groq · FAISS · BM25 · pypdf · python-docx |
 | 05 | [Exercise_05](./Exercise_05/) | Tool Calling Agent — 7 Tools + Multi-Tool + Agentic Loop | Python · Groq · Function Calling |
+| 06 | [Exercise_06](./Exercise_06/) | LangGraph NL-to-SQL Workflow — Router, SQL Guard, RAG Node | Python · LangGraph · LangChain · Groq · SQLite |
 
 ## Prerequisites (Global)
 - **Python 3.10+**
