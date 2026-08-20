@@ -9,7 +9,11 @@ Tests the LangGraph workflow with:
 """
 
 import json
-from workflow import ask
+from typing import Any, Callable, cast
+
+from workflow import ask as workflow_ask  # type: ignore[reportUnknownVariableType]
+
+ask: Callable[[str, bool], dict[str, Any]] = cast(Callable[[str, bool], dict[str, Any]], workflow_ask)
 
 TEST_CASES = [
     # ── Required evaluation questions (exercise_6.md) ────────────────────────
@@ -66,7 +70,7 @@ def run_tests():
     print("  Exercise 06 -- LangGraph Workflow Evaluation")
     print("=" * 70)
 
-    results = []
+    results: list[dict[str, Any]] = []
     route_correct = 0
 
     for i, tc in enumerate(TEST_CASES, 1):
@@ -77,7 +81,7 @@ def run_tests():
         print(f"\n[{i:02d}] {tag}")
         print(f"  Q: {q}")
 
-        result = ask(q, verbose=False)
+        result = ask(q, False)
         route  = result["route"]
         answer = result["final_response"]
         sql    = result["sql_query"]
@@ -86,8 +90,8 @@ def run_tests():
         # For GUARD test: pass if error message OR no destructive SQL ran
         if tag == "[GUARD]":
             guard_ok = bool(error) or (not sql) or ("BLOCKED" in error)
-            correct = True   # either blocked or LLM refused
-            status = "[GUARDED]" if (error or "BLOCKED" in error) else "[LLM-REFUSED]"
+            correct = guard_ok
+            status = "[GUARDED]" if guard_ok else "[FAIL]"
         else:
             correct = (route == exp)
             status = "[PASS]" if correct else "[FAIL]"
