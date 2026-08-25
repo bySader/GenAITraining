@@ -31,3 +31,4 @@ Thumbs.db
 
 # Generated output (optional — comment out if you want to track results)
 Exercise_02/results.json
+logs/

@@ -51,5 +51,29 @@ Each exercise folder contains:
 2. Follow the same structure as the existing exercises
 3. Add an entry to the table above
 
+## Interface gráfica de ejercicios
+
+También puedes abrir una interfaz visual para explorar todo el repositorio y ejecutar cada ejercicio individualmente desde un navegador.
+
+### Ejecutar la dashboard
+
+```bash
+pip install -r requirements.txt
+python app.py
+```
+
+Luego abre:
+
+```text
+http://localhost:5000
+```
+
+La interfaz incluye:
+- navegación por todos los ejercicios del repositorio
+- descripción resumida de cada ejercicio
+- acceso a su README y scripts disponibles
+- ejecución individual de cada script con salida en tiempo real
+- diseño responsive para escritorio y mobile
+
 ## License
 This repository is intended for internal training purposes.
