@@ -217,7 +217,7 @@ Output the SQL query only. No markdown code blocks.
             **state,
             "sql_query":    sql,
             "query_result": "",
-            "error":        f"BLOCKED: Generated SQL contains forbidden operations: {sql[:200]}",
+            "error":        f"BLOCKED: Generated SQL contains forbidden operations: {sql[:2000]}",
         }
 
     # Execute query
@@ -506,7 +506,7 @@ def main():
             print()
         print(f"Route: {result['route']}")
         if result["sql_query"]:
-            print(f"SQL:   {result['sql_query'][:120]}{'...' if len(result['sql_query']) > 120 else ''}")
+            print(f"SQL:   {result['sql_query'][:3200]}{'...' if len(result['sql_query']) > 3200 else ''}")
         print(f"\nAnswer:\n{result['final_response']}\n")
         print("-" * 65)
 
