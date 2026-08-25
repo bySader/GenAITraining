@@ -28,6 +28,11 @@ python workflow.py           # interactive CLI
 python evaluate.py           # run automated tests
 ```
 
+En el CLI, escribe una pregunta directamente después de `You:` para ejecutarla
+en el flujo. Después de cada respuesta aparecerá un menú para iniciar otra
+pregunta, cambiar el modo `verbose` o salir. También puedes usar `quit` para
+salir directamente.
+
 ## Example Questions
 
 ```

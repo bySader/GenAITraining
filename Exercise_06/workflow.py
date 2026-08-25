@@ -454,6 +454,20 @@ def ask(question: str, verbose: bool = False) -> dict:
 # ─────────────────────────────────────────────────────────────
 # Interactive CLI
 # ─────────────────────────────────────────────────────────────
+def add_question() -> str:
+    """Read a question directly from the terminal."""
+    return input("You: ").strip()
+
+
+def show_menu() -> str:
+    """Show the actions available after answering a question."""
+    print("\nMenu:")
+    print("  1. Nueva pregunta")
+    print("  2. Activar/desactivar verbose")
+    print("  3. Salir")
+    return input("Selecciona una opcion: ").strip().lower()
+
+
 def main():
     print("\n" + "=" * 65)
     print("  GEN AI Upskilling -- Exercise 06: LangGraph SQL Agent")
@@ -466,7 +480,7 @@ def main():
 
     while True:
         try:
-            question = input("You: ").strip()
+            question = add_question()
         except (EOFError, KeyboardInterrupt):
             print("\nGoodbye!")
             break
@@ -495,6 +509,24 @@ def main():
             print(f"SQL:   {result['sql_query'][:120]}{'...' if len(result['sql_query']) > 120 else ''}")
         print(f"\nAnswer:\n{result['final_response']}\n")
         print("-" * 65)
+
+        try:
+            menu_option = show_menu()
+        except (EOFError, KeyboardInterrupt):
+            print("\nGoodbye!")
+            break
+
+        if menu_option in ("1", "n", "new", "nueva"):
+            continue
+        if menu_option in ("2", "v", "verbose"):
+            verbose = not verbose
+            print(f"  Verbose {'ON' if verbose else 'OFF'}.\n")
+            continue
+        if menu_option in ("3", "q", "quit", "exit", "salir"):
+            print("Goodbye!")
+            break
+
+        print("Opcion no valida. Volviendo a la entrada de preguntas.\n")
 
 
 if __name__ == "__main__":
