@@ -62,6 +62,8 @@ pip install -r requirements.txt
 python app.py
 ```
 
+> La instalación raíz incluye las dependencias principales de todos los ejercicios para que la dashboard pueda lanzar cada script sin errores de `ModuleNotFoundError`.
+
 Luego abre:
 
 ```text
@@ -73,6 +75,7 @@ La interfaz incluye:
 - descripción resumida de cada ejercicio
 - acceso a su README y scripts disponibles
 - ejecución individual de cada script con salida en tiempo real
+- soporte para entrada interactiva de prompts: si un ejercicio solicita respuestas en consola, escribe cada línea en el campo de entrada de la dashboard antes de ejecutar.
 - diseño responsive para escritorio y mobile
 
 ## License

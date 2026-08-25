@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import uuid
 from pathlib import Path
 
+from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, request
 
 app = Flask(__name__)
@@ -12,6 +14,25 @@ app = Flask(__name__)
 ROOT = Path(__file__).resolve().parent
 LOG_DIR = ROOT / "logs"
 PROCESSES: dict[str, dict] = {}
+
+
+def load_global_api_key() -> str:
+    env_candidates = [
+        ROOT / ".env",
+        ROOT / "Exercise_06" / ".env",
+        ROOT / "Exercise_06" / ".env.local",
+    ]
+    for env_path in env_candidates:
+        if env_path.exists():
+            load_dotenv(env_path, override=False)
+
+    groq_key = (os.getenv("GROQ_API_KEY") or "").strip()
+    if groq_key:
+        os.environ["GROQ_API_KEY"] = groq_key
+    return groq_key
+
+
+GLOBAL_GROQ_API_KEY = load_global_api_key()
 
 EXERCISE_OVERRIDES = {
     "Exercise_01": {
@@ -123,6 +144,22 @@ def build_exercise_record(folder: Path) -> dict:
         "readme": str(readme.relative_to(ROOT)) if readme else "",
         "status": status,
     }
+
+
+def list_allowed_scripts(folder: Path) -> list[str]:
+    return sorted(p.name for p in folder.glob("*.py") if p.is_file())
+
+
+def is_safe_script_path(folder: Path, script_name: str) -> bool:
+    if not script_name or script_name in {".", ".."}:
+        return False
+    candidate = (folder / script_name).resolve()
+    base = folder.resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        return False
+    return candidate.is_file()
 
 
 INDEX_HTML = '''
@@ -473,6 +510,29 @@ INDEX_HTML = '''
         word-break: break-word;
       }
 
+      .stdin-panel {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+
+      .stdin-panel textarea {
+        width: 100%;
+        min-height: 96px;
+        resize: vertical;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.72);
+        color: var(--text);
+        padding: 0.8rem 0.9rem;
+      }
+
+      .stdin-caption {
+        color: var(--muted);
+        font-size: 0.76rem;
+        line-height: 1.5;
+      }
+
       @media (max-width: 980px) {
         .app-shell {
           grid-template-columns: 1fr;
@@ -575,6 +635,11 @@ INDEX_HTML = '''
             <span class="panel-label">Acciones</span>
           </div>
           <div id="scriptActions" class="script-actions" aria-label="Scripts disponibles"></div>
+          <div class="stdin-panel">
+            <label for="stdinInput" class="panel-label">Entrada del script (opcional)</label>
+            <textarea id="stdinInput" placeholder="Si el ejercicio pide interactuar por teclado, escribe aquí cada respuesta en una línea, por ejemplo:&#10;1&#10;Este es el texto que quiero resumir"></textarea>
+            <small class="stdin-caption">Se envía al proceso como entrada estándar. Úsalo para ejercicios con prompts o preguntas interactivas.</small>
+          </div>
         </section>
 
         <section class="panel console-panel">
@@ -604,6 +669,7 @@ INDEX_HTML = '''
         detailScripts: document.getElementById('detailScripts'),
         detailStatus: document.getElementById('detailStatus'),
         scriptActions: document.getElementById('scriptActions'),
+        stdinInput: document.getElementById('stdinInput'),
         consoleOutput: document.getElementById('consoleOutput'),
         runButton: document.getElementById('runButton'),
         openReadmeButton: document.getElementById('openReadmeButton'),
@@ -697,12 +763,13 @@ INDEX_HTML = '''
 
       async function runExercise(exerciseId, scriptName) {
         clearActivePoller();
+        const stdinText = (elements.stdinInput.value || '').trimEnd();
         setConsole(`Iniciando ${scriptName}...\n\nEsperando respuesta del proceso...`);
 
         const response = await fetch('/api/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ exerciseId: exerciseId, scriptName: scriptName }),
+          body: JSON.stringify({ exerciseId: exerciseId, scriptName: scriptName, stdinText: stdinText }),
         });
 
         if (!response.ok) {
@@ -765,6 +832,11 @@ def api_run():
     payload = request.get_json(silent=True) or {}
     exercise_id = (payload.get("exerciseId") or "").strip()
     script_name = (payload.get("scriptName") or "").strip()
+    stdin_text = payload.get("stdinText")
+    if stdin_text is None:
+        stdin_text = ""
+    if not isinstance(stdin_text, str):
+        stdin_text = str(stdin_text)
 
     if not exercise_id:
         return jsonify({"error": "Debes indicar un ejercicio."}), 400
@@ -773,26 +845,42 @@ def api_run():
     if not folder:
         return jsonify({"error": "No se encontró el ejercicio solicitado."}), 404
 
+    allowed_scripts = list_allowed_scripts(folder)
     if not script_name:
         script_name = EXERCISE_OVERRIDES.get(folder.name, {}).get("main_script") or next(
-            (p.name for p in sorted(folder.glob("*.py")) if p.name.lower() not in {"evaluate.py", "setup_db.py"}),
-            "",
+            (p for p in allowed_scripts if p.lower() not in {"evaluate.py", "setup_db.py"}),
+            allowed_scripts[0] if allowed_scripts else "",
         )
 
-    script_path = folder / script_name
-    if not script_path.exists():
-        return jsonify({"error": f"No se encontró el script {script_name}."}), 404
+    if script_name not in allowed_scripts:
+        return jsonify({"error": f"El script '{script_name}' no está permitido para este ejercicio."}), 400
+
+    script_path = (folder / script_name).resolve()
+    if not is_safe_script_path(folder, script_name) or not script_path.is_file():
+        return jsonify({"error": f"Ruta no válida para el script '{script_name}'."}), 400
 
     LOG_DIR.mkdir(exist_ok=True)
     log_path = LOG_DIR / f"{exercise_id}-{uuid.uuid4().hex}.log"
     log_file = log_path.open("w", encoding="utf-8")
+
+    stdin_stream = subprocess.PIPE if stdin_text else subprocess.DEVNULL
+    if not os.environ.get("GROQ_API_KEY") and not GLOBAL_GROQ_API_KEY:
+        return jsonify({"error": "No se encontró una GROQ_API_KEY. Añádela al archivo .env de Exercise_06 o como variable de entorno del sistema."}), 500
+
     process = subprocess.Popen(
         [sys.executable, script_name],
         cwd=str(folder),
+        stdin=stdin_stream,
         stdout=log_file,
         stderr=subprocess.STDOUT,
         text=True,
+        env=os.environ.copy(),
     )
+
+    if stdin_text:
+        if process.stdin is not None:
+            process.stdin.write(stdin_text)
+            process.stdin.close()
 
     PROCESSES[str(process.pid)] = {
         "process": process,
