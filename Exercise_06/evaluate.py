@@ -8,15 +8,19 @@ Tests the LangGraph workflow with:
 - 1 SQL injection attempt (Challenge 2 guard)
 """
 
+import sys
+import io
 import json
 from workflow import ask
+
+# Configure UTF-8 encoding for console output on Windows
+if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 TEST_CASES = [
     # ── Required evaluation questions (exercise_6.md) ────────────────────────
     {"q": "What is the most urgent ticket?",
-     "expected_route": "sql_query", "tag": "[REQUIRED]"},
-
-    
+     "expected_route": "sql_query", "tag": "[REQUIRED]"},    
 ]
 
 
@@ -56,10 +60,10 @@ def run_tests():
 
         print(f"  Route: {route}  {status}")
         if sql:
-            print(f"  SQL:   {sql[:110]}{'...' if len(sql) > 110 else ''}")
+            print(f"  SQL:   {sql[:3000]}{'...' if len(sql) > 3000 else ''}")
         if error:
-            print(f"  Guard: {error[:100]}")
-        print(f"  Respuesta:     {answer[:180]}{'...' if len(answer) > 180 else ''}")
+            print(f"  Guard: {error[:3000]}")
+        print(f"  Respuesta:     {answer[:3000]}{'...' if len(answer) > 3000 else ''}")
 
         results.append({
             "id":       i,

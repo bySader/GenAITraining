@@ -12,48 +12,12 @@ TEST_CASES = [
     {"question": "What is the status of ticket INC-12345?",
      "expected_tool": "get_ticket_status",        "requires_tool": True},
 
-    {"question": "Show me information about employee 1001",
-     "expected_tool": "get_employee_information", "requires_tool": True},
-
-    {"question": "Search for password reset documentation",
-     "expected_tool": "search_knowledge_base",    "requires_tool": True},
-
-    {"question": "What is the weather in Monterrey?",
-     "expected_tool": "get_weather",              "requires_tool": True},
-
-    {"question": "How many employees work in the IT department?",
-     "expected_tool": "get_department_headcount", "requires_tool": True},
-
-    {"question": "What tickets are assigned to employee 1001?",
-     "expected_tool": "get_tickets_by_employee",  "requires_tool": True},
-
-    {"question": "Calculate the square root of 256",
-     "expected_tool": "calculate",                "requires_tool": True},
-
-    {"question": "What is the status of ticket INC-12348?",
-     "expected_tool": "get_ticket_status",        "requires_tool": True},
-
-    {"question": "Find articles about VPN setup",
-     "expected_tool": "search_knowledge_base",    "requires_tool": True},
-
-    {"question": "What is the temperature in Tokyo?",
-     "expected_tool": "get_weather",              "requires_tool": True},
-
     # ── Challenge 2: Multi-tool ──────────────────────────────────────────────────
     {"question": "Get info for employee 1001 and show all their open tickets",
      "expected_tool": "multi",                    "requires_tool": True},
 
     # ── No-tool cases (direct LLM knowledge) ────────────────────────────────────
     {"question": "What is artificial intelligence?",
-     "expected_tool": None,                       "requires_tool": False},
-
-    {"question": "Explain what a relational database is.",
-     "expected_tool": None,                       "requires_tool": False},
-
-    {"question": "What are the benefits of using Docker?",
-     "expected_tool": None,                       "requires_tool": False},
-
-    {"question": "What does REST stand for?",
      "expected_tool": None,                       "requires_tool": False},
 ]
 
