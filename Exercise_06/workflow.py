@@ -35,11 +35,12 @@ import re
 import json
 import sqlite3
 from pathlib import Path
-from typing import TypedDict, Literal
+from typing import TypedDict, Literal, cast
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import StateGraph, END
+from pydantic import SecretStr
 
 from dotenv import load_dotenv
 
@@ -49,7 +50,7 @@ DB_PATH = Path(__file__).parent / "company.db"
 MODEL   = "openai/gpt-oss-120b"
 
 llm = ChatGroq(
-    api_key=os.environ.get("GROQ_API_KEY"),
+    api_key=(SecretStr(api_key) if (api_key := os.environ.get("GROQ_API_KEY")) else None),
     model=MODEL,
     temperature=0.1,
 )
@@ -96,6 +97,14 @@ class AgentState(TypedDict):
     query_result:   str          # raw DB result
     final_response: str          # human-readable answer
     error:          str          # error message if any
+
+
+class WorkflowResult(TypedDict):
+    route:           str
+    sql_query:       str
+    query_result:    str
+    final_response:  str
+    error:           str
 
 
 # ─────────────────────────────────────────────────────────────
@@ -419,7 +428,7 @@ def build_workflow():
 # ─────────────────────────────────────────────────────────────
 app = build_workflow()
 
-def ask(question: str, verbose: bool = False) -> dict:
+def ask(question: str, verbose: bool = False) -> WorkflowResult:
     """
     Run the workflow for a single question.
     Returns structured dict with route, sql_query, and final_response.
@@ -433,7 +442,7 @@ def ask(question: str, verbose: bool = False) -> dict:
         "error":          "",
     }
 
-    result = app.invoke(initial_state)
+    result = cast(AgentState, app.invoke(initial_state))
 
     if verbose:
         print(f"  Route:    {result['route']}")
@@ -505,8 +514,9 @@ def main():
         if verbose:
             print()
         print(f"Route: {result['route']}")
-        if result["sql_query"]:
-            print(f"SQL:   {result['sql_query'][:3200]}{'...' if len(result['sql_query']) > 3200 else ''}")
+        sql_query = result["sql_query"] if isinstance(result["sql_query"], str) else ""
+        if sql_query:
+            print(f"SQL:   {sql_query[:3200]}{'...' if len(sql_query) > 3200 else ''}")
         print(f"\nAnswer:\n{result['final_response']}\n")
         print("-" * 65)
 

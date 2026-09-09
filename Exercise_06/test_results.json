@@ -8,6 +8,6 @@
     "correct": true,
     "sql": "SELECT ticket_id, title, priority, status, owner, created_date FROM tickets ORDER BY CASE priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4 END LIMIT 1;",
     "error": "",
-    "answer": "The most urgent ticket is **TKT‑001**:\n\n- **Title:** VPN connection failure  \n- **Priority:** Critical  \n- **Status:** Open  \n- **Owner:** Alice Martinez  \n- **Created on:** August 1, 2026  \n\nThis ticket has the highest priority (Critical) and is currently open."
+    "answer": "The most urgent ticket is **TKT‑001** – titled **“VPN connection failure.”** It has a **Critical** priority, is currently **Open**, and is assigned to **Alice Martinez**. The ticket was created on **August 1 2026**."
   }
 ]

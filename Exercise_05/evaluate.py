@@ -5,7 +5,14 @@ Tests tool selection accuracy, structured output, and no-tool cases.
 """
 
 import json
-from agent import run_agent, TOOL_LOG
+from typing import Any, Callable, cast
+from agent import run_agent as _run_agent, TOOL_LOG as _TOOL_LOG
+
+TOOL_LOG: list[dict[str, Any]] = cast(list[dict[str, Any]], _TOOL_LOG)
+
+run_agent: Callable[[str, bool], dict[str, Any]] = cast(
+    Callable[[str, bool], dict[str, Any]], _run_agent
+)
 
 TEST_CASES = [
     # ── Tool-required cases ───────────────────────────────────────────────
@@ -27,14 +34,14 @@ def run_tests():
     print("  Exercise 05 -- Tool Calling Evaluation")
     print("=" * 70)
 
-    results = []
+    results: list[dict[str, Any]] = []
     correct_tool = 0
     correct_no_tool = 0
     total_tool_cases   = sum(1 for t in TEST_CASES if t["requires_tool"])
     total_no_tool_cases = sum(1 for t in TEST_CASES if not t["requires_tool"])
 
     for i, tc in enumerate(TEST_CASES, 1):
-        q            = tc["question"]
+        q: str       = cast(str, tc["question"])
         req_tool     = tc["requires_tool"]
         expected_tool = tc["expected_tool"]
         tag = "[TOOL]    " if req_tool else "[NO-TOOL]"
@@ -42,7 +49,7 @@ def run_tests():
         print(f"\n[{i:02d}] {tag}")
         print(f"  Q: {q}")
 
-        result = run_agent(q, verbose=False)
+        result = run_agent(q, False)
         answer = result["answer"]
         tool_used = result["tool_used"]
         tools_count = result["tools_count"]

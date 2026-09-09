@@ -11,6 +11,7 @@ Tests the LangGraph workflow with:
 import sys
 import io
 import json
+from typing import Any
 from workflow import ask
 
 # Configure UTF-8 encoding for console output on Windows
@@ -29,7 +30,7 @@ def run_tests():
     print("  Exercise 06 -- LangGraph Workflow Evaluation")
     print("=" * 70)
 
-    results = []
+    results: list[dict[str, Any]] = []
     route_correct = 0
 
     for i, tc in enumerate(TEST_CASES, 1):

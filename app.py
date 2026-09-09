@@ -5,6 +5,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
+from typing import TextIO, TypedDict, cast
 
 from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, request
@@ -13,7 +14,15 @@ app = Flask(__name__)
 
 ROOT = Path(__file__).resolve().parent
 LOG_DIR = ROOT / "logs"
-PROCESSES: dict[str, dict] = {}
+class ProcessMeta(TypedDict):
+  process: subprocess.Popen[str]
+  log_file: TextIO
+  log_path: str
+  exercise_id: str
+  script_name: str
+
+
+PROCESSES: dict[str, ProcessMeta] = {}
 
 
 def load_global_api_key() -> str:
@@ -100,7 +109,7 @@ def derive_summary(folder: Path, fallback: str) -> str:
     for index, line in enumerate(lines):
         stripped = line.strip()
         if stripped.lower().startswith("## overview") or stripped.lower().startswith("### objective") or stripped.lower().startswith("## exercise description"):
-            result = []
+            result: list[str] = []
             for next_line in lines[index + 1 :]:
                 if next_line.startswith("##") or next_line.startswith("#"):
                     break
@@ -112,7 +121,7 @@ def derive_summary(folder: Path, fallback: str) -> str:
     return fallback
 
 
-def build_exercise_record(folder: Path) -> dict:
+def build_exercise_record(folder: Path) -> dict[str, object]:
     folder_name = folder.name
     override = EXERCISE_OVERRIDES.get(folder_name, {})
     title = override.get("title") or folder_name
@@ -125,7 +134,7 @@ def build_exercise_record(folder: Path) -> dict:
         candidates = [p.name for p in python_files if p.name.lower() not in {"evaluate.py", "setup_db.py"}]
         main_script = candidates[0] if candidates else (python_files[0].name if python_files else "")
 
-    scripts = []
+    scripts: list[dict[str, str]] = []
     for py_file in python_files:
         kind = "main" if py_file.name == main_script else "support"
         scripts.append({"name": py_file.name, "kind": kind})
@@ -635,7 +644,7 @@ INDEX_HTML = '''
             <span class="panel-label">Acciones</span>
           </div>
           <div id="scriptActions" class="script-actions" aria-label="Scripts disponibles"></div>
-          <div class="stdin-panel">
+          <div class="stdin-panel"><br>
             <label for="stdinInput" class="panel-label">Entrada del script (opcional)</label>
             <textarea id="stdinInput" placeholder="Si el ejercicio pide interactuar por teclado, escribe aquí cada respuesta en una línea, por ejemplo:&#10;1&#10;Este es el texto que quiero resumir"></textarea>
             <small class="stdin-caption">Se envía al proceso como entrada estándar. Úsalo para ejercicios con prompts o preguntas interactivas.</small>
@@ -829,9 +838,12 @@ def api_exercises():
 
 @app.route("/api/run", methods=["POST"])
 def api_run():
-    payload = request.get_json(silent=True) or {}
-    exercise_id = (payload.get("exerciseId") or "").strip()
-    script_name = (payload.get("scriptName") or "").strip()
+    raw_payload = request.get_json(silent=True)
+    payload: dict[str, object] = (
+      cast(dict[str, object], raw_payload) if isinstance(raw_payload, dict) else {}
+    )
+    exercise_id = str(payload.get("exerciseId") or "").strip()
+    script_name = str(payload.get("scriptName") or "").strip()
     stdin_text = payload.get("stdinText")
     if stdin_text is None:
         stdin_text = ""
