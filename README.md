@@ -5,9 +5,8 @@
 > This learning path covers Prompt Engineering, Retrieval-Augmented Generation (RAG), Tool Calling, AI Agents, and LangGraph workflows using modern LLM technologies.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Groq](https://img.shields.io/badge/LLM-Groq-oranges.io/badge/Framework-LangChain-green
-![Lang//img.shields.io/badge/Workflow-LangGraph-purple
-https://img.shields.io/badge/License-Internal-lightgrey
+![Groq](https://img.shields.io/badge/LLM-Groq-oranges.io/badge/Framework-LangChain-green)
+![LangChain](https://img.shields.io/badge/langchain-%231C3C3C.svg?style=for-the-badge&logo=langchain&logoColor=white)
 
 ---
 
