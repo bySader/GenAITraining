@@ -49,6 +49,33 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def coerce_llm_text(content: Any) -> str:
+    """Normalize LLM responses that may arrive as plain text or list/dict content."""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+                else:
+                    parts.append(json.dumps(item, ensure_ascii=False))
+            else:
+                parts.append(str(item))
+        return "\n".join(parts).strip()
+    if isinstance(content, dict):
+        text = content.get("text") or content.get("content")
+        if isinstance(text, str):
+            return text.strip()
+        return json.dumps(content, ensure_ascii=False).strip()
+    return str(content).strip()
+
+
 DB_PATH = Path(__file__).parent / "company.db"
 MODEL   = "openai/gpt-oss-120b"
 
@@ -217,7 +244,7 @@ Output the SQL query only. No markdown code blocks.
         HumanMessage(content=state["question"]),
     ])
 
-    sql = response.content.strip()
+    sql = coerce_llm_text(response.content)
     # Strip markdown code fences if LLM added them anyway
     sql = re.sub(r"^```(?:sql)?\s*", "", sql, flags=re.IGNORECASE)
     sql = re.sub(r"\s*```$", "", sql)
@@ -290,7 +317,7 @@ Please provide a natural language answer based only on the data above.
         HumanMessage(content=user_msg),
     ])
 
-    return {**state, "final_response": response.content.strip()}
+    return {**state, "final_response": coerce_llm_text(response.content)}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -303,7 +330,7 @@ def direct_answer_node(state: AgentState) -> AgentState:
         SystemMessage(content="You are a helpful assistant. Answer concisely and accurately in the same language as the user's question."),
         HumanMessage(content=state["question"]),
     ])
-    return {**state, "sql_query": "", "query_result": "", "final_response": response.content.strip()}
+    return {**state, "sql_query": "", "query_result": "", "final_response": str(response.content).strip()}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -331,7 +358,7 @@ def rag_node(state: AgentState) -> AgentState:
     using keyword matching, then uses LLM to synthesize a grounded answer.
     """
     q_lower = state["question"].lower()
-    scored = []
+    scored: list[tuple[int, dict[str, str]]] = []
     for article in KB_ARTICLES:
         score = sum(
             (3 if kw in article["title"].lower() else 0) +
@@ -366,12 +393,21 @@ Answer in the same language as the user's question.
         HumanMessage(content=state["question"]),
     ])
 
+    response_content = response.content
+    if isinstance(response_content, str):
+        response_text = response_content
+    else:
+        response_text = "".join(
+            block if isinstance(block, str) else str(block.get("text", ""))
+            for block in response_content
+        )
+
     sources = ", ".join(a["id"] for a in top_articles)
     return {
         **state,
         "sql_query":    "",
         "query_result": context,
-        "final_response": f"{response.content.strip()}\n\n(Sources: {sources})",
+        "final_response": f"{response_text.strip()}\n\n(Sources: {sources})",
     }
 
 
@@ -392,7 +428,7 @@ def route_decision(state: AgentState) -> Literal["sql_tool", "direct_answer", "r
 # ─────────────────────────────────────────────────────────────
 # BUILD THE LANGGRAPH WORKFLOW
 # ─────────────────────────────────────────────────────────────
-def build_workflow():
+def build_workflow() -> Any:
     """
     Constructs the LangGraph StateGraph:
 
@@ -429,7 +465,11 @@ def build_workflow():
     graph.add_edge("direct_answer", END)
     graph.add_edge("rag",           END)
 
-    return graph.compile()
+    # The installed LangGraph stubs leave ``compile`` partially unknown to
+    # static analyzers; keep the runtime call unchanged while making the
+    # boundary explicit.
+    compile_workflow = cast(Any, graph).compile
+    return compile_workflow()
 
 
 # ─────────────────────────────────────────────────────────────
