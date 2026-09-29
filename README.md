@@ -152,7 +152,11 @@ Prefer a visual workflow over the terminal? The repository ships with a **web-ba
 - ▶️ Execute individual scripts with one click
 - 📡 Real-time execution output
 - ⌨️ Interactive prompt support
+- 💬 Chat-style conversations with a saved history for each exercise
+- 📊 Exercise 06 results show the SQL query and a readable answer, without CLI menus or debug output
 - 📱 Responsive design (desktop & mobile)
+
+Type a message or the script's requested responses in the chat composer. Press **Enter** to run the selected exercise's main script, or **Shift+Enter** to add another line. Each response and script output is saved automatically in your browser for that exercise. Use **Borrar historial** to remove the selected exercise's conversation.
 
 **Launch it:**
 

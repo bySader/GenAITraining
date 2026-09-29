@@ -34,6 +34,8 @@ import os
 import re
 import json
 import sqlite3
+import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import TypedDict, Literal, cast
 
@@ -248,10 +250,14 @@ def formatter_node(state: AgentState) -> AgentState:
     natural language answer grounded entirely in the DB data.
     """
     if state.get("error"):
-        return {**state, "final_response": f"I encountered an issue: {state['error']}"}
+        if state["error"].startswith("BLOCKED:"):
+            response = "Por seguridad, esta consulta no se ejecutó porque la operación solicitada no está permitida."
+        else:
+            response = "No se pudo consultar la información. Revisa la pregunta e inténtalo de nuevo."
+        return {**state, "final_response": response}
 
     if not state.get("query_result") or state["query_result"] == "[]":
-        return {**state, "final_response": "No results were found in the database for your query."}
+        return {**state, "final_response": "No encontré resultados para esta consulta."}
 
     system = """
 You are a professional business assistant.
@@ -262,6 +268,7 @@ and well-formatted natural language response.
 Rules:
 - Base your answer ONLY on the data provided. Do NOT add information not in the results.
 - Be conversational and professional.
+- Answer in the same language as the user's question.
 - If there are multiple rows, present them as a numbered list or a brief table summary.
 - Keep the response concise (under 200 words unless a list requires more).
 """.strip()
@@ -292,7 +299,7 @@ Please provide a natural language answer based only on the data above.
 def direct_answer_node(state: AgentState) -> AgentState:
     """Answers general-knowledge questions directly without DB access."""
     response = llm.invoke([
-        SystemMessage(content="You are a helpful assistant. Answer the question concisely and accurately."),
+        SystemMessage(content="You are a helpful assistant. Answer concisely and accurately in the same language as the user's question."),
         HumanMessage(content=state["question"]),
     ])
     return {**state, "sql_query": "", "query_result": "", "final_response": response.content.strip()}
@@ -338,7 +345,7 @@ def rag_node(state: AgentState) -> AgentState:
     top_articles = [a for _, a in scored[:2]]
 
     if not top_articles:
-        return {**state, "final_response": "I could not find relevant documentation for your question. Please contact the IT helpdesk."}
+        return {**state, "final_response": "No encontré documentación relacionada con esa pregunta. Contacta con soporte de TI si necesitas ayuda."}
 
     context = "\n\n".join(f"[{a['id']}] {a['title']}\n{a['content']}" for a in top_articles)
 
@@ -346,6 +353,7 @@ def rag_node(state: AgentState) -> AgentState:
 You are a company knowledge base assistant.
 Answer the user's question using ONLY the documentation excerpts below.
 If the excerpts do not contain enough information, say "I don't have that information in my knowledge base."
+Answer in the same language as the user's question.
 
 --- KNOWLEDGE BASE ---
 {context}
@@ -391,7 +399,7 @@ def build_workflow():
                  --direct----> [direct_answer] -----------> END
                  --rag-------> [rag_node] -----------------> END
     """
-    graph = StateGraph(AgentState)
+    graph: StateGraph[AgentState] = StateGraph(AgentState)
 
     # Add nodes
     graph.add_node("router",        router_node)
@@ -477,7 +485,53 @@ def show_menu() -> str:
     return input("Selecciona una opcion: ").strip().lower()
 
 
+def run_dashboard() -> int:
+    """Run one question and emit only structured data for the web dashboard."""
+    question = sys.stdin.read().strip()
+    if not question:
+        result = {
+            "sql_query": "",
+            "final_response": "Escribe una pregunta para consultar la información.",
+            "error": "empty_question",
+        }
+        print(json.dumps(result, ensure_ascii=False))
+        return 1
+
+    if not (os.environ.get("GROQ_API_KEY") or "").strip():
+        result = {
+            "sql_query": "",
+            "final_response": "No está configurada la clave de acceso al servicio de IA.",
+            "error": "missing_api_key",
+        }
+        print(json.dumps(result, ensure_ascii=False))
+        return 1
+
+    try:
+        with redirect_stdout(sys.stderr):
+            workflow_result = ask(question)
+        result = {
+            "sql_query": workflow_result["sql_query"],
+            "final_response": workflow_result["final_response"],
+            "error": workflow_result["error"],
+        }
+    except Exception:
+        result = {
+            "sql_query": "",
+            "final_response": (
+                "No se pudo completar la consulta. Revisa la conexión, "
+                "el modelo configurado y la base de datos."
+            ),
+            "error": "workflow_failed",
+        }
+
+    print(json.dumps(result, ensure_ascii=False))
+    return 1 if result["error"] else 0
+
+
 def main():
+    if sys.argv[1:] == ["--dashboard"]:
+        raise SystemExit(run_dashboard())
+
     print("\n" + "=" * 65)
     print("  GEN AI Upskilling -- Exercise 06: LangGraph SQL Agent")
     print("=" * 65)
@@ -514,9 +568,9 @@ def main():
         if verbose:
             print()
         print(f"Route: {result['route']}")
-        sql_query = result["sql_query"] if isinstance(result["sql_query"], str) else ""
+        sql_query = result["sql_query"]
         if sql_query:
-            print(f"SQL:   {sql_query[:3200]}{'...' if len(sql_query) > 3200 else ''}")
+            print(f"SQL:   {sql_query[:4200]}{'...' if len(sql_query) > 4200 else ''}")
         print(f"\nAnswer:\n{result['final_response']}\n")
         print("-" * 65)
 

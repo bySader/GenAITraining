@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import importlib.util
+import json
 import os
+import sqlite3
 import subprocess
 import sys
 import uuid
+from html import escape
 from pathlib import Path
 from typing import TextIO, TypedDict, cast
 
@@ -155,8 +159,103 @@ def build_exercise_record(folder: Path) -> dict[str, object]:
     }
 
 
+def list_exercises() -> list[dict[str, object]]:
+    return [
+        build_exercise_record(folder)
+        for folder in sorted(ROOT.glob("Exercise_*"))
+        if folder.is_dir()
+    ]
+
+
+def render_exercise_navigation(exercises: list[dict[str, object]]) -> str:
+    if not exercises:
+        return '<p class="description-text">No hay ejercicios disponibles en el repositorio.</p>'
+
+    cards = []
+    for exercise in exercises:
+        exercise_id = escape(str(exercise["id"]), quote=True)
+        name = escape(str(exercise["name"]).replace("Exercise_", "Ex."))
+        title = escape(str(exercise["title"]))
+        description = escape(str(exercise["description"]))
+        cards.append(
+            f'<button class="exercise-button" type="button" data-id="{exercise_id}">'
+            f'<span class="exercise-chip">{name}</span>'
+            f'<h3>{title}</h3>'
+            f'<p>{description}</p>'
+            "</button>"
+        )
+    return "".join(cards)
+
+
 def list_allowed_scripts(folder: Path) -> list[str]:
     return sorted(p.name for p in folder.glob("*.py") if p.is_file())
+
+
+EXERCISE_06_REQUIRED_COLUMNS = {
+    "tickets": {"ticket_id", "title", "priority", "status", "owner", "owner_id", "project_id", "created_date"},
+    "employees": {"employee_id", "name", "department", "hire_date", "project", "skills"},
+    "projects": {"project_id", "name", "duration", "team", "termination_date", "has_open_tickets", "open_tickets"},
+    "clients": {"client_id", "client_name", "industry", "country", "account_manager", "active_projects"},
+    "skill_certifications": {"certification_id", "employee_id", "certification_name", "provider", "issue_date", "expiration_date"},
+}
+
+
+def exercise06_prerequisite_error() -> str | None:
+    if not (os.environ.get("GROQ_API_KEY") or GLOBAL_GROQ_API_KEY):
+        return "No se encontró GROQ_API_KEY. Configúrala en .env o como variable de entorno y reinicia el dashboard."
+
+    missing_modules = [
+        module
+        for module in ("langchain_groq", "langchain_core", "langgraph", "pydantic", "dotenv")
+        if importlib.util.find_spec(module) is None
+    ]
+    if missing_modules:
+        return (
+            "Faltan dependencias de Exercise 06: "
+            f"{', '.join(missing_modules)}. Instálalas con el requirements.txt de Exercise_06."
+        )
+
+    database_path = ROOT / "Exercise_06" / "company.db"
+    if not database_path.is_file():
+        return (
+            "No existe Exercise_06/company.db. setup_db.py puede crearla, pero "
+            "elimina y recrea las tablas; ejecútalo solo si confirmas que no perderás datos."
+        )
+
+    try:
+        connection = sqlite3.connect(f"{database_path.as_uri()}?mode=ro", uri=True)
+        try:
+            existing_tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            missing_tables = EXERCISE_06_REQUIRED_COLUMNS.keys() - existing_tables
+            if missing_tables:
+                return (
+                    f"La base de datos no contiene las tablas requeridas: {', '.join(sorted(missing_tables))}. "
+                    "setup_db.py elimina y recrea las tablas; ejecútalo solo después de respaldar o confirmar que "
+                    "puedes reemplazar los datos."
+                )
+
+            for table, required_columns in EXERCISE_06_REQUIRED_COLUMNS.items():
+                actual_columns = {
+                    row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')
+                }
+                missing_columns = required_columns - actual_columns
+                if missing_columns:
+                    return (
+                        f"La tabla {table} no contiene las columnas requeridas: "
+                        f"{', '.join(sorted(missing_columns))}. No se modificó la base de datos."
+                    )
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        app.logger.exception("No se pudo validar la base de datos de Exercise 06.")
+        return "No se pudo abrir o validar Exercise_06/company.db. Revisa que sea una base SQLite válida."
+
+    return None
 
 
 def is_safe_script_path(folder: Path, script_name: str) -> bool:
@@ -211,7 +310,7 @@ INDEX_HTML = '''
         min-height: 100vh;
       }
 
-      button, input {
+      button, input, textarea {
         font: inherit;
       }
 
@@ -226,6 +325,11 @@ INDEX_HTML = '''
         border-right: 1px solid var(--border);
         padding: 24px 18px;
         backdrop-filter: blur(12px);
+        align-self: start;
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow-y: auto;
       }
 
       .brand-block {
@@ -287,7 +391,8 @@ INDEX_HTML = '''
       .secondary-button:focus-visible,
       .ghost-button:focus-visible,
       .script-button:focus-visible,
-      .exercise-button:focus-visible {
+      .exercise-button:focus-visible,
+      .stdin-panel textarea:focus-visible {
         outline: 3px solid rgba(56, 189, 248, 0.5);
         outline-offset: 2px;
       }
@@ -346,7 +451,10 @@ INDEX_HTML = '''
       }
 
       .content {
-        padding: 32px 28px 20px;
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+        padding: 24px 28px;
       }
 
       .topbar {
@@ -354,12 +462,36 @@ INDEX_HTML = '''
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        margin-bottom: 22px;
+        margin-bottom: 16px;
       }
 
       .topbar h2 {
-        font-size: clamp(1.6rem, 2vw, 2.2rem);
+        font-size: clamp(1.3rem, 2vw, 1.8rem);
         color: var(--heading);
+      }
+
+      .detail-description {
+        max-width: 760px;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.5;
+      }
+
+      .exercise-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin-top: 10px;
+      }
+
+      .meta-chip {
+        padding: 0.3rem 0.55rem;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: rgba(30, 41, 59, 0.58);
+        color: var(--muted);
+        font-size: 0.72rem;
       }
 
       .header-actions {
@@ -406,25 +538,11 @@ INDEX_HTML = '''
         color: var(--muted);
       }
 
-      .overview-grid {
-        display: grid;
-        grid-template-columns: 1.5fr 0.9fr;
-        gap: 18px;
-        margin-bottom: 18px;
-      }
-
       .panel {
         background: rgba(15, 23, 42, 0.8);
         border: 1px solid var(--border);
         border-radius: 18px;
         box-shadow: var(--shadow);
-      }
-
-      .info-panel,
-      .stats-panel,
-      .action-panel,
-      .console-panel {
-        padding: 18px 20px;
       }
 
       .panel-header {
@@ -442,52 +560,43 @@ INDEX_HTML = '''
       }
 
       .description-text {
-        color: var(--text);
-        line-height: 1.7;
-        font-size: 1rem;
-      }
-
-      .stat-list {
-        display: grid;
-        gap: 12px;
-      }
-
-      .stat-item {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding: 10px 12px;
-        background: rgba(30, 41, 59, 0.6);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-      }
-
-      .stat-label {
-        font-size: 0.72rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
         color: var(--muted);
+        line-height: 1.6;
+        font-size: 0.9rem;
       }
 
-      .stat-item strong {
-        color: var(--heading);
-        font-size: 0.92rem;
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
       }
 
-      .action-panel {
-        margin-bottom: 18px;
+      .script-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 48px;
+        margin-bottom: 12px;
       }
 
       .script-actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 12px;
+        gap: 8px;
       }
 
       .script-button {
         background: rgba(15, 23, 42, 0.8);
         color: var(--text);
         border-color: var(--border);
+        padding: 0.55rem 0.8rem;
+        font-size: 0.82rem;
       }
 
       .script-button.primary {
@@ -495,39 +604,198 @@ INDEX_HTML = '''
         border-color: rgba(56, 189, 248, 0.52);
       }
 
-      .console-panel {
-        min-height: 300px;
+      .chat-panel {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 480px;
+        overflow: hidden;
       }
 
-      .terminal-header {
-        margin-bottom: 14px;
+      .chat-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--border);
       }
 
-      .console-output {
-        margin: 0;
-        min-height: 210px;
-        max-height: 420px;
+      .chat-heading {
+        color: var(--heading);
+        font-size: 0.92rem;
+        font-weight: 700;
+      }
+
+      .chat-persistence {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 0.75rem;
+      }
+
+      .chat-messages {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 18px;
+        min-height: 260px;
         overflow: auto;
-        padding: 14px 16px;
-        border-radius: 12px;
-        background: rgba(2, 6, 23, 0.82);
+        padding: 22px clamp(14px, 5vw, 64px);
+        overscroll-behavior: contain;
+      }
+
+      .empty-chat {
+        display: grid;
+        flex: 1;
+        align-content: center;
+        justify-items: center;
+        gap: 10px;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .empty-chat strong {
+        color: var(--heading);
+        font-size: 1.05rem;
+      }
+
+      .empty-chat p {
+        max-width: 440px;
+        font-size: 0.86rem;
+        line-height: 1.6;
+      }
+
+      .chat-message {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        max-width: min(820px, 88%);
+      }
+
+      .chat-message.user {
+        align-self: flex-end;
+        flex-direction: row-reverse;
+      }
+
+      .message-avatar {
+        display: grid;
+        flex: 0 0 32px;
+        width: 32px;
+        height: 32px;
+        place-items: center;
         border: 1px solid var(--border);
+        border-radius: 50%;
+        background: var(--panel-soft);
+        color: var(--primary);
+        font-size: 0.75rem;
+        font-weight: 700;
+      }
+
+      .chat-message.user .message-avatar {
+        background: rgba(14, 165, 233, 0.2);
+      }
+
+      .message-content {
+        min-width: 0;
+      }
+
+      .message-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 4px 6px;
+        color: var(--muted);
+        font-size: 0.72rem;
+      }
+
+      .chat-message.user .message-meta {
+        justify-content: flex-end;
+      }
+
+      .message-bubble {
+        padding: 12px 15px;
+        border: 1px solid var(--border);
+        border-radius: 4px 16px 16px 16px;
+        background: rgba(30, 41, 59, 0.72);
+        color: var(--text);
+        font-size: 0.9rem;
+        line-height: 1.65;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .chat-message.user .message-bubble {
+        border-color: rgba(56, 189, 248, 0.28);
+        border-radius: 16px 4px 16px 16px;
+        background: rgba(14, 165, 233, 0.16);
+      }
+
+      .chat-message.failed .message-bubble {
+        border-color: rgba(248, 113, 113, 0.42);
+      }
+
+      .structured-response {
+        display: grid;
+        gap: 14px;
+      }
+
+      .result-section-label {
+        margin-bottom: 7px;
+        color: var(--primary);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .sql-query {
+        max-height: 260px;
+        margin: 0;
+        overflow: auto;
+        padding: 12px 14px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: rgba(2, 6, 23, 0.55);
         color: #dbeafe;
+        font-family: Consolas, "Courier New", monospace;
         font-size: 0.82rem;
         line-height: 1.6;
         white-space: pre-wrap;
-        word-break: break-word;
+        overflow-wrap: anywhere;
+      }
+
+      .answer-text {
+        color: var(--text);
+        font-size: 0.92rem;
+        line-height: 1.7;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .message-status {
+        margin: 7px 4px 0;
+        color: var(--muted);
+        font-size: 0.72rem;
+      }
+
+      .chat-message.failed .message-status {
+        color: var(--danger);
       }
 
       .stdin-panel {
         display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
         gap: 10px;
-        margin-bottom: 18px;
+        align-items: end;
+        padding: 14px 18px 10px;
+        border-top: 1px solid var(--border);
       }
 
       .stdin-panel textarea {
+        grid-column: 1 / -1;
         width: 100%;
-        min-height: 96px;
+        min-height: 62px;
+        max-height: 180px;
         resize: vertical;
         border-radius: 12px;
         border: 1px solid var(--border);
@@ -537,9 +805,28 @@ INDEX_HTML = '''
       }
 
       .stdin-caption {
+        grid-column: 1;
         color: var(--muted);
         font-size: 0.76rem;
         line-height: 1.5;
+      }
+
+      .input-feedback {
+        grid-column: 1 / -1;
+        color: var(--danger);
+        font-size: 0.8rem;
+      }
+
+      .stdin-panel .primary-button {
+        grid-column: 2;
+        grid-row: 2;
+        min-width: 132px;
+      }
+
+      button:disabled,
+      textarea:disabled {
+        cursor: not-allowed;
+        opacity: 0.58;
       }
 
       @media (max-width: 980px) {
@@ -548,18 +835,19 @@ INDEX_HTML = '''
         }
 
         .sidebar {
+          position: static;
+          height: auto;
+          max-height: none;
           border-right: none;
           border-bottom: 1px solid var(--border);
         }
 
-        .overview-grid {
-          grid-template-columns: 1fr;
-        }
       }
 
       @media (max-width: 560px) {
         .content {
-          padding: 18px 14px 30px;
+          min-height: 75vh;
+          padding: 18px 14px 22px;
         }
 
         .topbar {
@@ -573,6 +861,38 @@ INDEX_HTML = '''
 
         .header-actions > * {
           flex: 1 1 auto;
+        }
+
+        .chat-panel {
+          min-height: 65vh;
+        }
+
+        .chat-header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .chat-messages {
+          padding: 18px 12px;
+        }
+
+        .chat-message {
+          max-width: 96%;
+        }
+
+        .stdin-panel {
+          grid-template-columns: 1fr;
+          padding: 12px;
+        }
+
+        .stdin-caption,
+        .stdin-panel .primary-button {
+          grid-column: 1;
+          grid-row: auto;
+        }
+
+        .stdin-panel .primary-button {
+          width: 100%;
         }
       }
     </style>
@@ -593,80 +913,58 @@ INDEX_HTML = '''
           <input id="exerciseSearch" type="search" placeholder="Ej. RAG, SQL, agente..." aria-label="Buscar ejercicios" />
         </label>
 
-        <nav id="exerciseList" class="exercise-list" aria-live="polite"></nav>
+        <nav id="exerciseList" class="exercise-list" aria-live="polite">__INITIAL_EXERCISE_NAV__</nav>
       </aside>
 
-      <main class="content" aria-live="polite">
+      <main class="content">
         <header class="topbar">
           <div>
             <p class="eyebrow">Dashboard</p>
             <h2 id="detailTitle">Selecciona un ejercicio</h2>
+            <p id="detailDescription" class="detail-description">Elige un ejercicio para comenzar una conversación.</p>
+            <div id="exerciseMeta" class="exercise-meta" aria-label="Resumen del ejercicio"></div>
           </div>
           <div class="header-actions">
             <button id="openReadmeButton" class="secondary-button" type="button">Abrir README</button>
-            <button id="runButton" class="primary-button" type="button">Ejecutar</button>
           </div>
         </header>
 
-        <section class="overview-grid">
-          <article class="info-panel panel">
-            <div class="panel-header">
-              <span class="panel-label">Descripción</span>
-            </div>
-            <p id="detailDescription" class="description-text">
-              Elige un ejercicio para revisar objetivos, stack tecnológico y cómo ejecutarlo.
-            </p>
-          </article>
-
-          <article class="stats-panel panel">
-            <div class="panel-header">
-              <span class="panel-label">Resumen</span>
-            </div>
-            <div class="stat-list">
-              <div class="stat-item">
-                <span class="stat-label">Stack</span>
-                <strong id="detailStack">—</strong>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">Scripts</span>
-                <strong id="detailScripts">—</strong>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">Estado</span>
-                <strong id="detailStatus">—</strong>
-              </div>
-            </div>
-          </article>
-        </section>
-
-        <section class="panel action-panel">
-          <div class="panel-header">
-            <span class="panel-label">Acciones</span>
-          </div>
+        <section class="script-toolbar" aria-label="Scripts disponibles">
+          <span class="panel-label">Scripts</span>
           <div id="scriptActions" class="script-actions" aria-label="Scripts disponibles"></div>
-          <div class="stdin-panel"><br>
-            <label for="stdinInput" class="panel-label">Entrada del script (opcional)</label>
-            <textarea id="stdinInput" placeholder="Si el ejercicio pide interactuar por teclado, escribe aquí cada respuesta en una línea, por ejemplo:&#10;1&#10;Este es el texto que quiero resumir"></textarea>
-            <small class="stdin-caption">Se envía al proceso como entrada estándar. Úsalo para ejercicios con prompts o preguntas interactivas.</small>
-          </div>
         </section>
 
-        <section class="panel console-panel">
-          <div class="panel-header terminal-header">
-            <span class="panel-label">Salida</span>
-            <button id="clearConsoleButton" class="ghost-button" type="button">Limpiar</button>
+        <section class="panel chat-panel" aria-label="Conversación del ejercicio">
+          <div class="chat-header">
+            <div>
+              <p class="chat-heading">Conversación</p>
+              <p id="chatPersistence" class="chat-persistence" role="status">El historial se guarda en este navegador.</p>
+            </div>
+            <button id="clearHistoryButton" class="ghost-button" type="button">Borrar historial</button>
           </div>
-          <pre id="consoleOutput" class="console-output">Selecciona un ejercicio y ejecuta el script para ver el resultado aquí.</pre>
+          <div id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Historial de la conversación"></div>
+          <form id="chatForm" class="stdin-panel">
+            <label for="stdinInput" class="visually-hidden">Mensaje o respuestas para el script</label>
+            <textarea id="stdinInput" aria-describedby="stdinHelp" placeholder="Escribe un mensaje o las respuestas que solicita el script..."></textarea>
+            <small id="stdinHelp" class="stdin-caption">Enter ejecuta el script principal. Shift+Enter agrega una línea. El historial queda guardado en este navegador.</small>
+            <small id="inputFeedback" class="input-feedback" role="alert" hidden></small>
+            <button id="sendButton" class="primary-button" type="submit">Enviar y ejecutar</button>
+          </form>
         </section>
       </main>
     </div>
 
     <script>
+      const HISTORY_STORAGE_KEY = 'genai-training-chat-history-v1';
+      const INITIAL_EXERCISES = __INITIAL_EXERCISES__;
+
       const state = {
-        exercises: [],
+        exercises: INITIAL_EXERCISES,
         selectedExerciseId: null,
+        conversations: Object.create(null),
         activeProcessPid: null,
         activePoller: null,
+        isLaunching: false,
       };
 
       const elements = {
@@ -674,36 +972,249 @@ INDEX_HTML = '''
         exerciseSearch: document.getElementById('exerciseSearch'),
         detailTitle: document.getElementById('detailTitle'),
         detailDescription: document.getElementById('detailDescription'),
-        detailStack: document.getElementById('detailStack'),
-        detailScripts: document.getElementById('detailScripts'),
-        detailStatus: document.getElementById('detailStatus'),
+        exerciseMeta: document.getElementById('exerciseMeta'),
         scriptActions: document.getElementById('scriptActions'),
         stdinInput: document.getElementById('stdinInput'),
-        consoleOutput: document.getElementById('consoleOutput'),
-        runButton: document.getElementById('runButton'),
+        chatForm: document.getElementById('chatForm'),
+        chatMessages: document.getElementById('chatMessages'),
+        chatPersistence: document.getElementById('chatPersistence'),
+        inputFeedback: document.getElementById('inputFeedback'),
+        sendButton: document.getElementById('sendButton'),
         openReadmeButton: document.getElementById('openReadmeButton'),
-        clearConsoleButton: document.getElementById('clearConsoleButton'),
+        clearHistoryButton: document.getElementById('clearHistoryButton'),
       };
 
-      function setConsole(message) {
-        elements.consoleOutput.textContent = message;
+      function setPersistenceStatus(message) {
+        elements.chatPersistence.textContent = message;
       }
 
-      function clearActivePoller() {
-        if (state.activePoller) {
-          clearTimeout(state.activePoller);
-          state.activePoller = null;
+      function loadConversationHistory() {
+        try {
+          const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
+          if (!stored) {
+            return;
+          }
+
+          const parsed = JSON.parse(stored);
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('El formato del historial guardado no es válido.');
+          }
+
+          let shouldSaveHistory = false;
+          for (const [exerciseId, messages] of Object.entries(parsed)) {
+            if (!Array.isArray(messages)) {
+              continue;
+            }
+
+            state.conversations[exerciseId] = messages.filter((message) =>
+              message &&
+              typeof message.id === 'string' &&
+              (message.role === 'user' || message.role === 'assistant') &&
+              typeof message.content === 'string'
+            ).map((message) => ({
+              id: message.id,
+              role: message.role,
+              content: message.content,
+              createdAt: typeof message.createdAt === 'string' ? message.createdAt : new Date().toISOString(),
+              scriptName: typeof message.scriptName === 'string' ? message.scriptName : '',
+              sqlQuery: typeof message.sqlQuery === 'string' ? message.sqlQuery : '',
+              status: ['running', 'completed', 'failed'].includes(message.status) ? message.status : 'completed',
+            }));
+
+            for (const message of state.conversations[exerciseId]) {
+              if (message.role === 'assistant' && message.status === 'running') {
+                message.status = 'failed';
+                message.content = `${message.content}\n\nLa ejecución se interrumpió al salir o recargar la página.`;
+                shouldSaveHistory = true;
+              }
+
+              if (exerciseId.toLowerCase() === 'exercise_06' && message.role === 'assistant' && message.scriptName === 'workflow.py') {
+                const legacyOutput = message.content;
+                const sqlMatch = legacyOutput.match(/(?:^|\n)SQL:\s*([\s\S]*?)(?=\nAnswer:\s*\n)/);
+                const answerMatch = legacyOutput.match(/\nAnswer:\s*\n([\s\S]*?)(?=\n-{5,}\s*(?:\n|$)|\nEstado:|\n\nMenu:|$)/);
+                if (sqlMatch || answerMatch) {
+                  message.sqlQuery = sqlMatch ? sqlMatch[1].trim() : '';
+                  message.content = answerMatch ? answerMatch[1].trim() : 'La salida anterior no contiene una respuesta legible.';
+                  shouldSaveHistory = true;
+                } else if (/Route:|Workflow running|GEN AI Upskilling/.test(legacyOutput)) {
+                  message.content = 'La respuesta de esta ejecución anterior no está disponible en el formato nuevo.';
+                  message.sqlQuery = '';
+                  shouldSaveHistory = true;
+                }
+              }
+            }
+          }
+
+          if (shouldSaveHistory) {
+            saveConversationHistory();
+          }
+        } catch (error) {
+          console.error('No se pudo cargar el historial de conversación.', error);
+          setPersistenceStatus('No se pudo leer el historial guardado en este navegador.');
         }
+      }
+
+      function saveConversationHistory() {
+        try {
+          localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(state.conversations));
+          setPersistenceStatus('Historial guardado en este navegador.');
+          return true;
+        } catch (error) {
+          console.error('No se pudo guardar el historial de conversación.', error);
+          setPersistenceStatus('No se pudo guardar el historial. Revisa el espacio disponible del navegador.');
+          return false;
+        }
+      }
+
+      function getConversation(exerciseId) {
+        if (!state.conversations[exerciseId]) {
+          state.conversations[exerciseId] = [];
+        }
+        return state.conversations[exerciseId];
+      }
+
+      function renderConversation(exerciseId) {
+        elements.chatMessages.replaceChildren();
+        const messages = getConversation(exerciseId);
+        elements.clearHistoryButton.disabled = !messages.length || state.activeProcessPid !== null || state.isLaunching;
+
+        if (!messages.length) {
+          const emptyState = document.createElement('div');
+          emptyState.className = 'empty-chat';
+          const title = document.createElement('strong');
+          title.textContent = 'Comienza una conversación';
+          const description = document.createElement('p');
+          description.textContent = 'Escribe una pregunta o las respuestas que solicita el script. La salida aparecerá aquí y quedará guardada para este ejercicio.';
+          emptyState.append(title, description);
+          elements.chatMessages.append(emptyState);
+          return;
+        }
+
+        for (const message of messages) {
+          const row = document.createElement('article');
+          row.className = `chat-message ${message.role}${message.status === 'failed' ? ' failed' : ''}`;
+          row.dataset.messageId = message.id;
+          const avatar = document.createElement('span');
+          avatar.className = 'message-avatar';
+          avatar.setAttribute('aria-hidden', 'true');
+          avatar.textContent = message.role === 'user' ? 'T' : 'AI';
+
+          const content = document.createElement('div');
+          content.className = 'message-content';
+          const meta = document.createElement('div');
+          meta.className = 'message-meta';
+          const sender = document.createElement('span');
+          sender.textContent = message.role === 'user' ? 'Tú' : 'GenAI Training';
+          meta.append(sender);
+          if (message.scriptName && !isSqlWorkflowMessage(exerciseId, message)) {
+            const script = document.createElement('span');
+            script.textContent = `· ${message.scriptName}`;
+            meta.append(script);
+          }
+
+          const bubble = document.createElement('div');
+          bubble.className = 'message-bubble';
+          if (message.role === 'assistant' && isSqlWorkflowMessage(exerciseId, message) && (message.status === 'completed' || message.sqlQuery)) {
+            const structured = document.createElement('div');
+            structured.className = 'structured-response';
+            if (message.sqlQuery) {
+              const querySection = document.createElement('section');
+              const queryLabel = document.createElement('p');
+              queryLabel.className = 'result-section-label';
+              queryLabel.textContent = 'Consulta SQL';
+              const query = document.createElement('pre');
+              query.className = 'sql-query';
+              const queryCode = document.createElement('code');
+              queryCode.textContent = message.sqlQuery;
+              query.append(queryCode);
+              querySection.append(queryLabel, query);
+              structured.append(querySection);
+            }
+
+            const answerSection = document.createElement('section');
+            const answerLabel = document.createElement('p');
+            answerLabel.className = 'result-section-label';
+            answerLabel.textContent = 'Respuesta';
+            const answer = document.createElement('p');
+            answer.className = 'answer-text';
+            answer.textContent = message.content;
+            answerSection.append(answerLabel, answer);
+            structured.append(answerSection);
+            bubble.append(structured);
+          } else {
+            bubble.textContent = message.content;
+          }
+          content.append(meta, bubble);
+
+          if (message.role === 'assistant' && (!isSqlWorkflowMessage(exerciseId, message) || message.status !== 'completed')) {
+            const status = document.createElement('p');
+            status.className = 'message-status';
+            status.textContent = message.status === 'running'
+              ? isSqlWorkflowMessage(exerciseId, message) ? 'Preparando la respuesta…' : 'Ejecutando…'
+              : message.status === 'failed'
+                ? isSqlWorkflowMessage(exerciseId, message) ? 'No se pudo completar la consulta.' : 'La ejecución terminó con un error.'
+                : 'Respuesta del script';
+            content.append(status);
+          }
+
+          row.append(avatar, content);
+          elements.chatMessages.append(row);
+        }
+
+        elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+      }
+
+      function updateRunningMessage(exerciseId, message) {
+        if (state.selectedExerciseId !== exerciseId) {
+          return;
+        }
+
+        const row = [...elements.chatMessages.querySelectorAll('.chat-message')]
+          .find((item) => item.dataset.messageId === message.id);
+        if (!row) {
+          return;
+        }
+
+        const bubble = row.querySelector('.message-bubble');
+        if (bubble) {
+          bubble.textContent = message.content;
+        }
+      }
+
+      function setExecutionBusy(isBusy) {
+        state.isLaunching = isBusy && state.activeProcessPid === null;
+        elements.stdinInput.disabled = isBusy;
+        elements.sendButton.disabled = isBusy;
+        const currentMessages = state.conversations[state.selectedExerciseId] || [];
+        elements.clearHistoryButton.disabled = isBusy || !currentMessages.length;
+        elements.sendButton.textContent = isBusy ? 'Ejecutando…' : 'Enviar y ejecutar';
+        elements.scriptActions.querySelectorAll('button').forEach((button) => {
+          button.disabled = isBusy;
+        });
       }
 
       async function fetchExercises() {
-        const response = await fetch('/api/exercises');
-        const data = await response.json();
-        state.exercises = data.exercises || [];
-        if (!state.selectedExerciseId && state.exercises.length) {
-          selectExercise(state.exercises[0].id);
+        try {
+          const response = await fetch('/api/exercises');
+          if (!response.ok) {
+            throw new Error(`No se pudieron cargar los ejercicios (${response.status}).`);
+          }
+          const data = await response.json();
+          if (!Array.isArray(data.exercises)) {
+            throw new Error('La respuesta de ejercicios no tiene el formato esperado.');
+          }
+          state.exercises = data.exercises.length ? data.exercises : state.exercises;
+          if (!state.selectedExerciseId && state.exercises.length) {
+            selectExercise(state.exercises[0].id);
+          } else {
+            renderExerciseList();
+          }
+        } catch (error) {
+          console.error('No se pudieron actualizar los ejercicios.', error);
+          if (!state.exercises.length) {
+            elements.exerciseList.innerHTML = '<p class="description-text">No se pudieron cargar los ejercicios. Recarga la página para intentarlo de nuevo.</p>';
+          }
         }
-        renderExerciseList();
       }
 
       function renderExerciseList() {
@@ -728,7 +1239,7 @@ INDEX_HTML = '''
           `)
           .join('');
 
-        document.querySelectorAll('.exercise-button').forEach((button) => {
+        elements.exerciseList.querySelectorAll('.exercise-button').forEach((button) => {
           button.addEventListener('click', () => {
             selectExercise(button.dataset.id);
           });
@@ -736,21 +1247,29 @@ INDEX_HTML = '''
       }
 
       function selectExercise(exerciseId) {
-        state.selectedExerciseId = exerciseId;
-        const exercise = state.exercises.find((item) => item.id === exerciseId);
+        const exercise = state.exercises.find((item) => item.id.toLowerCase() === exerciseId.toLowerCase());
         if (!exercise) {
           return;
         }
+        state.selectedExerciseId = exercise.id;
 
         elements.detailTitle.textContent = exercise.title;
         elements.detailDescription.textContent = exercise.description;
-        elements.detailStack.textContent = exercise.stack.join(' • ');
-        elements.detailScripts.textContent = `${exercise.scripts.length} script(s)`;
-        elements.detailStatus.textContent = exercise.status;
+        const metaItems = [
+          `Stack: ${exercise.stack.join(' · ')}`,
+          `Scripts: ${exercise.scripts.length}`,
+          `Estado: ${exercise.status}`,
+        ];
+        elements.exerciseMeta.replaceChildren(...metaItems.map((item) => {
+          const chip = document.createElement('span');
+          chip.className = 'meta-chip';
+          chip.textContent = item;
+          return chip;
+        }));
 
         const buttons = exercise.scripts
           .map((script) => `
-            <button class="script-button ${script.kind === 'main' ? 'primary' : ''}" type="button" data-script="${script.name}">
+            <button class="script-button ${script.kind === 'main' ? 'primary' : ''}" type="button" data-script="${script.name}" ${state.activeProcessPid !== null || state.isLaunching ? 'disabled' : ''}>
               ${script.kind === 'main' ? '▶ Ejecutar principal' : '◇'} ${script.name}
             </button>
           `)
@@ -763,57 +1282,190 @@ INDEX_HTML = '''
           });
         });
 
-        elements.runButton.disabled = false;
-        elements.runButton.onclick = () => runExercise(exercise.id, exercise.main_script);
         elements.openReadmeButton.onclick = () => window.open(`/readme/${exercise.id}`, '_blank', 'noopener,noreferrer');
-
+        renderConversation(exercise.id);
         renderExerciseList();
       }
 
-      async function runExercise(exerciseId, scriptName) {
-        clearActivePoller();
-        const stdinText = (elements.stdinInput.value || '').trimEnd();
-        setConsole(`Iniciando ${scriptName}...\n\nEsperando respuesta del proceso...`);
-
-        const response = await fetch('/api/run', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ exerciseId: exerciseId, scriptName: scriptName, stdinText: stdinText }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'No se pudo ejecutar el ejercicio.' }));
-          setConsole(errorData.error || 'No se pudo ejecutar el ejercicio.');
-          return;
+      function runSelectedExercise() {
+        const exercise = state.exercises.find((item) => item.id === state.selectedExerciseId);
+        if (exercise) {
+          return runExercise(exercise.id, exercise.main_script);
         }
-
-        const payload = await response.json();
-        state.activeProcessPid = payload.pid;
-        pollProcess(payload.pid);
       }
 
-      async function pollProcess(pid) {
-        const response = await fetch(`/api/process/${pid}`);
-        const data = await response.json();
+      function isSqlWorkflowMessage(exerciseId, message) {
+        return exerciseId.toLowerCase() === 'exercise_06' && message.scriptName === 'workflow.py';
+      }
 
-        if (response.ok && data.output) {
-          setConsole(data.output);
-        } else if (response.ok) {
-          setConsole(`Proceso ${pid} en ejecución...`);
-        }
-
-        if (data.status === 'running') {
-          state.activePoller = setTimeout(() => pollProcess(pid), 1200);
+      async function runExercise(exerciseId, scriptName) {
+        if (state.activeProcessPid !== null || state.isLaunching) {
           return;
         }
 
-        const percentText = data.exitCode === 0 ? 'completado correctamente.' : 'finalizó con errores.';
-        setConsole(`${data.output || 'El proceso terminó.'}\n\nEstado: ${percentText}`);
+        const stdinText = (elements.stdinInput.value || '').trimEnd();
+        const isSqlWorkflow = exerciseId.toLowerCase() === 'exercise_06' && scriptName === 'workflow.py';
+        if (isSqlWorkflow && !stdinText.trim()) {
+          elements.inputFeedback.textContent = 'Escribe una pregunta para ejecutar el agente SQL.';
+          elements.inputFeedback.hidden = false;
+          elements.stdinInput.focus();
+          return;
+        }
+        elements.inputFeedback.textContent = '';
+        elements.inputFeedback.hidden = true;
+
+        const conversation = getConversation(exerciseId);
+        const userContent = stdinText || (isSqlWorkflow ? 'Consultar información de la empresa' : `Ejecutar ${scriptName}`);
+        const timestamp = new Date().toISOString();
+        const assistantMessage = {
+          id: `${Date.now()}-${Math.random()}`,
+          role: 'assistant',
+          content: isSqlWorkflow ? 'Analizando tu consulta…' : `Iniciando ${scriptName}…`,
+          createdAt: timestamp,
+          scriptName,
+          sqlQuery: '',
+          status: 'running',
+        };
+        conversation.push({
+          id: `${Date.now()}-${Math.random()}-user`,
+          role: 'user',
+          content: userContent,
+          createdAt: timestamp,
+          scriptName: '',
+          status: 'completed',
+        });
+        conversation.push(assistantMessage);
+        elements.stdinInput.value = '';
+        saveConversationHistory();
+        renderConversation(exerciseId);
+        setExecutionBusy(true);
+
+        try {
+          const response = await fetch('/api/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ exerciseId: exerciseId, scriptName: scriptName, stdinText: stdinText }),
+          });
+
+          const payload = await response.json().catch(() => ({ error: 'No se pudo ejecutar el ejercicio.' }));
+          if (!response.ok) {
+            assistantMessage.content = payload.error || 'No se pudo ejecutar el ejercicio.';
+            assistantMessage.status = 'failed';
+            saveConversationHistory();
+            renderConversation(exerciseId);
+            setExecutionBusy(false);
+            return;
+          }
+
+          state.activeProcessPid = payload.pid;
+          pollProcess(payload.pid, exerciseId, assistantMessage);
+        } catch (error) {
+          console.error('No se pudo iniciar el script.', error);
+          assistantMessage.content = 'No se pudo iniciar el script. Verifica la conexión con el dashboard e inténtalo de nuevo.';
+          assistantMessage.status = 'failed';
+          saveConversationHistory();
+          renderConversation(exerciseId);
+          setExecutionBusy(false);
+        }
+      }
+
+      async function pollProcess(pid, exerciseId, assistantMessage) {
+        try {
+          const response = await fetch(`/api/process/${pid}`);
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.error || 'No se pudo consultar el proceso.');
+          }
+
+          if (data.status === 'running') {
+            assistantMessage.content = isSqlWorkflowMessage(exerciseId, assistantMessage)
+              ? 'Analizando la pregunta y preparando la respuesta…'
+              : data.output || `El script ${assistantMessage.scriptName} sigue ejecutándose…`;
+            updateRunningMessage(exerciseId, assistantMessage);
+            state.activePoller = setTimeout(() => pollProcess(pid, exerciseId, assistantMessage), 1200);
+            return;
+          }
+
+          let succeeded = data.exitCode === 0;
+          if (isSqlWorkflowMessage(exerciseId, assistantMessage)) {
+            let result;
+            try {
+              result = JSON.parse(data.output);
+            } catch (error) {
+              console.error('La respuesta estructurada de SQL no es válida.', error);
+              result = null;
+            }
+
+            if (!result || typeof result !== 'object' || Array.isArray(result)) {
+              assistantMessage.content = 'Exercise 06 no devolvió una respuesta válida. Comprueba las dependencias y revisa los logs del dashboard.';
+              succeeded = false;
+            } else {
+              assistantMessage.sqlQuery = typeof result.sql_query === 'string' ? result.sql_query : '';
+              assistantMessage.content = typeof result.final_response === 'string' && result.final_response
+                ? result.final_response
+                : 'La consulta terminó sin una respuesta disponible.';
+              succeeded = succeeded && !result.error;
+            }
+          } else {
+            assistantMessage.content = `${data.output || 'El proceso terminó sin generar salida.'}\n\nEstado: ${succeeded ? 'completado correctamente.' : 'finalizó con errores.'}`;
+          }
+          assistantMessage.status = succeeded ? 'completed' : 'failed';
+          saveConversationHistory();
+          if (state.selectedExerciseId === exerciseId) {
+            renderConversation(exerciseId);
+          }
+          state.activeProcessPid = null;
+          state.activePoller = null;
+          setExecutionBusy(false);
+        } catch (error) {
+          console.error('No se pudo consultar la salida del script.', error);
+          assistantMessage.content = isSqlWorkflowMessage(exerciseId, assistantMessage)
+            ? 'No se pudo obtener la respuesta. Verifica la conexión e inténtalo de nuevo.'
+            : `No se pudo consultar la salida del script: ${error.message}`;
+          assistantMessage.status = 'failed';
+          saveConversationHistory();
+          if (state.selectedExerciseId === exerciseId) {
+            renderConversation(exerciseId);
+          }
+          state.activeProcessPid = null;
+          state.activePoller = null;
+          setExecutionBusy(false);
+        }
       }
 
       elements.exerciseSearch.addEventListener('input', renderExerciseList);
-      elements.clearConsoleButton.addEventListener('click', () => setConsole('Salida limpia. Selecciona un ejercicio para continuar.'));
+      elements.chatForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        runSelectedExercise();
+      });
+      elements.stdinInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+          event.preventDefault();
+          elements.chatForm.requestSubmit();
+        }
+      });
+      elements.stdinInput.addEventListener('input', () => {
+        elements.inputFeedback.textContent = '';
+        elements.inputFeedback.hidden = true;
+      });
+      elements.clearHistoryButton.addEventListener('click', () => {
+        if (!state.selectedExerciseId || !getConversation(state.selectedExerciseId).length) {
+          return;
+        }
+        if (!window.confirm('¿Borrar todo el historial de este ejercicio?')) {
+          return;
+        }
+        delete state.conversations[state.selectedExerciseId];
+        saveConversationHistory();
+        renderConversation(state.selectedExerciseId);
+      });
 
+      loadConversationHistory();
+      if (state.exercises.length) {
+        selectExercise(state.exercises[0].id);
+      } else {
+        elements.exerciseList.innerHTML = '<p class="description-text">No hay ejercicios disponibles en el repositorio.</p>';
+      }
       fetchExercises();
     </script>
   </body>
@@ -823,17 +1475,17 @@ INDEX_HTML = '''
 
 @app.route("/")
 def index():
-    return Response(INDEX_HTML, mimetype="text/html; charset=utf-8")
+    exercises = list_exercises()
+    initial_exercises = json.dumps(exercises, ensure_ascii=True).replace("</", "<\\/")
+    exercise_navigation = render_exercise_navigation(exercises)
+    html = INDEX_HTML.replace("__INITIAL_EXERCISES__", initial_exercises)
+    html = html.replace("__INITIAL_EXERCISE_NAV__", exercise_navigation)
+    return Response(html, mimetype="text/html; charset=utf-8")
 
 
 @app.route("/api/exercises")
 def api_exercises():
-    exercises = [
-        build_exercise_record(folder)
-        for folder in sorted(ROOT.glob("Exercise_*"))
-        if folder.is_dir()
-    ]
-    return jsonify({"exercises": exercises})
+    return jsonify({"exercises": list_exercises()})
 
 
 @app.route("/api/run", methods=["POST"])
@@ -871,28 +1523,66 @@ def api_run():
     if not is_safe_script_path(folder, script_name) or not script_path.is_file():
         return jsonify({"error": f"Ruta no válida para el script '{script_name}'."}), 400
 
+    if folder.name == "Exercise_06" and script_name == "workflow.py" and not stdin_text.strip():
+        return jsonify({"error": "Escribe una pregunta para ejecutar el agente SQL."}), 400
+
+    if folder.name == "Exercise_06" and script_name == "workflow.py":
+        prerequisite_error = exercise06_prerequisite_error()
+        if prerequisite_error:
+            return jsonify({"error": prerequisite_error}), 503
+    elif not (folder.name == "Exercise_06" and script_name == "setup_db.py") and not (
+        os.environ.get("GROQ_API_KEY") or GLOBAL_GROQ_API_KEY
+    ):
+        return jsonify({"error": "No se encontró GROQ_API_KEY. Configúrala en .env o como variable de entorno."}), 503
+
     LOG_DIR.mkdir(exist_ok=True)
     log_path = LOG_DIR / f"{exercise_id}-{uuid.uuid4().hex}.log"
     log_file = log_path.open("w", encoding="utf-8")
 
     stdin_stream = subprocess.PIPE if stdin_text else subprocess.DEVNULL
-    if not os.environ.get("GROQ_API_KEY") and not GLOBAL_GROQ_API_KEY:
-        return jsonify({"error": "No se encontró una GROQ_API_KEY. Añádela al archivo .env de Exercise_06 o como variable de entorno del sistema."}), 500
+    is_sql_dashboard_run = folder.name == "Exercise_06" and script_name == "workflow.py"
+    command = [sys.executable, script_name]
+    if is_sql_dashboard_run:
+        command.append("--dashboard")
 
-    process = subprocess.Popen(
-        [sys.executable, script_name],
-        cwd=str(folder),
-        stdin=stdin_stream,
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-        text=True,
-        env=os.environ.copy(),
-    )
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=str(folder),
+            stdin=stdin_stream,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=os.environ.copy(),
+        )
+    except OSError as exc:
+        log_file.close()
+        app.logger.exception("No se pudo iniciar %s para %s.", script_name, exercise_id)
+        return jsonify({"error": f"No se pudo iniciar el script solicitado: {exc}"}), 500
 
     if stdin_text:
-        if process.stdin is not None:
+        try:
+            if process.stdin is None:
+                raise OSError("El proceso no abrió el canal de entrada.")
             process.stdin.write(stdin_text)
             process.stdin.close()
+        except (OSError, ValueError) as exc:
+            if process.poll() is None:
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                process.wait()
+            log_file.close()
+            app.logger.exception("No se pudo enviar la entrada a %s para %s.", script_name, exercise_id)
+            return jsonify({"error": "No se pudo enviar la pregunta al proceso. Inténtalo de nuevo."}), 500
 
     PROCESSES[str(process.pid)] = {
         "process": process,

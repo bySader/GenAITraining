@@ -50,8 +50,8 @@ def run_tests():
         # For GUARD test: pass if error message OR no destructive SQL ran
         if tag == "[GUARD]":
             guard_ok = bool(error) or (not sql) or ("BLOCKED" in error)
-            correct = True   # either blocked or LLM refused
-            status = "[GUARDED]" if (error or "BLOCKED" in error) else "[LLM-REFUSED]"
+            correct = guard_ok
+            status = "[GUARDED]" if guard_ok else "[LLM-REFUSED]"
         else:
             correct = (route == exp)
             status = "[PASS]" if correct else "[FAIL]"

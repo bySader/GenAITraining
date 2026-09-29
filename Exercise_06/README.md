@@ -22,16 +22,25 @@ A **LangGraph Workflow** that takes natural language questions, optionally conve
 
 ```bash
 pip install -r requirements.txt
-python setup_db.py          # creates company.db
+python setup_db.py          # creates company.db; drops and recreates its tables
 copy .env.example .env      # add your GROQ_API_KEY
 python workflow.py           # interactive CLI
 python evaluate.py           # run automated tests
 ```
 
+`setup_db.py` replaces the existing tables and their data. Run it only for a new
+database or after confirming that replacing its contents is safe. The dashboard
+checks the API key, dependencies, and expected database schema before launching
+the Exercise 06 workflow.
+
 En el CLI, escribe una pregunta directamente después de `You:` para ejecutarla
 en el flujo. Después de cada respuesta aparecerá un menú para iniciar otra
 pregunta, cambiar el modo `verbose` o salir. También puedes usar `quit` para
 salir directamente.
+
+En el dashboard, las respuestas se presentan en un formato más sencillo: la
+consulta SQL generada y la respuesta en lenguaje natural, sin los mensajes del
+menú interactivo de la terminal.
 
 ## Example Questions
 
