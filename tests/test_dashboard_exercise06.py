@@ -26,6 +26,14 @@ class DashboardExercise06Tests(unittest.TestCase):
         self.assertIn("addEventListener('input', renderExerciseList)", html)
         self.assertIn("selectExercise(button.dataset.id)", html)
         self.assertIn("restoreConversationHistory(exercise.id)", html)
+        self.assertIn(
+            r"legacyOutput.match(/(?:^|\n)SQL:\s*([\s\S]*?)(?=\nAnswer:\s*\n)/)",
+            html,
+        )
+        self.assertIn(
+            r"legacyOutput.match(/\nAnswer:\s*\n([\s\S]*?)(?=\n-{5,}\s*(?:\n|$)|\nEstado:|\n\nMenu:|$)/)",
+            html,
+        )
         self.assertIn("/api/conversations/", html)
 
     def test_exercise_api_includes_exercise06(self) -> None:

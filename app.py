@@ -1214,8 +1214,8 @@ INDEX_HTML = '''
 
               if (exerciseId.toLowerCase() === 'exercise_06' && message.role === 'assistant' && message.scriptName === 'workflow.py') {
                 const legacyOutput = message.content;
-                const sqlMatch = legacyOutput.match(/(?:^|\n)SQL:\s*([\s\S]*?)(?=\nAnswer:\s*\n)/);
-                const answerMatch = legacyOutput.match(/\nAnswer:\\s*\n([\\s\S]*?)(?=\n-{5,}\s*(?:\n|$)|\nEstado:|\n\nMenu:|$)/);
+                const sqlMatch = legacyOutput.match(/(?:^|\\n)SQL:\\s*([\\s\\S]*?)(?=\\nAnswer:\\s*\\n)/);
+                const answerMatch = legacyOutput.match(/\\nAnswer:\\s*\\n([\\s\\S]*?)(?=\\n-{5,}\\s*(?:\\n|$)|\\nEstado:|\\n\\nMenu:|$)/);
                 if (sqlMatch || answerMatch) {
                   message.sqlQuery = sqlMatch ? sqlMatch[1].trim() : '';
                   message.content = answerMatch ? answerMatch[1].trim() : 'La salida anterior no contiene una respuesta legible.';
