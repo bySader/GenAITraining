@@ -42,6 +42,24 @@ En el dashboard, las respuestas se presentan en un formato más sencillo: la
 consulta SQL generada y la respuesta en lenguaje natural, sin los mensajes del
 menú interactivo de la terminal.
 
+## Estilo de las respuestas
+
+Las rutas SQL, respuesta directa y búsqueda documental comparten un perfil de
+comunicación cercano, claro y respetuoso. El perfil evita frases rígidas y
+mantiene la respuesta en el idioma de la pregunta, sin permitir que el tono
+añada datos que no estén respaldados por la base de datos o la documentación.
+
+## Historial de conversación
+
+El dashboard guarda los mensajes del chat en SQLite, en
+`instance/conversation_history.sqlite3`, separado de `company.db`. Al volver a
+abrir el dashboard desde el mismo perfil del navegador, puedes consultar en el
+chat las preguntas y respuestas anteriores. También se conserva una copia local
+en el navegador para usarla si el servidor de historial no está disponible.
+Se conservan hasta los 500 mensajes más recientes por ejercicio. El botón
+**Borrar historial** elimina la conversación del ejercicio seleccionado. Este
+historial está asociado al perfil de navegador, no a una cuenta de usuario.
+
 ## Example Questions
 
 ```

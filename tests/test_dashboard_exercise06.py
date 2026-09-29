@@ -25,6 +25,8 @@ class DashboardExercise06Tests(unittest.TestCase):
         self.assertIn('data-id="exercise_06"', html)
         self.assertIn("addEventListener('input', renderExerciseList)", html)
         self.assertIn("selectExercise(button.dataset.id)", html)
+        self.assertIn("restoreConversationHistory(exercise.id)", html)
+        self.assertIn("/api/conversations/", html)
 
     def test_exercise_api_includes_exercise06(self) -> None:
         response = self.client.get("/api/exercises")
@@ -33,6 +35,77 @@ class DashboardExercise06Tests(unittest.TestCase):
         exercises = response.get_json()["exercises"]
         exercise = next(item for item in exercises if item["id"] == "exercise_06")
         self.assertEqual(exercise["main_script"], "workflow.py")
+
+    def test_conversation_history_can_be_saved_loaded_and_cleared(self) -> None:
+        owner_id = "11111111-1111-4111-8111-111111111111"
+        other_owner_id = "22222222-2222-4222-8222-222222222222"
+        messages = [
+            {
+                "id": "message-1",
+                "role": "user",
+                "content": "¿Cuántos tickets están abiertos?",
+                "createdAt": "2026-09-29T12:00:00.000Z",
+                "scriptName": "",
+                "sqlQuery": "",
+                "status": "completed",
+            },
+            {
+                "id": "message-2",
+                "role": "assistant",
+                "content": "Hay tres tickets abiertos.",
+                "createdAt": "2026-09-29T12:00:02.000Z",
+                "scriptName": "workflow.py",
+                "sqlQuery": "SELECT COUNT(*) FROM tickets WHERE status = 'Open';",
+                "status": "completed",
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with patch.object(
+                dashboard,
+                "CONVERSATION_DB_PATH",
+                Path(temporary_directory) / "instance" / "history.sqlite3",
+            ):
+                saved = self.client.put(
+                    f"/api/conversations/{owner_id}/exercise_06",
+                    json={"messages": messages},
+                )
+                loaded = self.client.get(
+                    f"/api/conversations/{owner_id}/exercise_06"
+                )
+                isolated = self.client.get(
+                    f"/api/conversations/{other_owner_id}/exercise_06"
+                )
+                cleared = self.client.delete(
+                    f"/api/conversations/{owner_id}/exercise_06"
+                )
+                after_clear = self.client.get(
+                    f"/api/conversations/{owner_id}/exercise_06"
+                )
+
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(loaded.get_json()["messages"], messages)
+        self.assertEqual(isolated.get_json()["messages"], [])
+        self.assertEqual(cleared.status_code, 200)
+        self.assertEqual(after_clear.get_json()["messages"], [])
+
+    def test_conversation_history_rejects_invalid_owner_and_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with patch.object(
+                dashboard,
+                "CONVERSATION_DB_PATH",
+                Path(temporary_directory) / "history.sqlite3",
+            ):
+                invalid_owner = self.client.get(
+                    "/api/conversations/not-a-uuid/exercise_06"
+                )
+                invalid_message = self.client.put(
+                    "/api/conversations/11111111-1111-4111-8111-111111111111/exercise_06",
+                    json={"messages": [{"id": "bad", "role": [], "content": "x"}]},
+                )
+
+        self.assertEqual(invalid_owner.status_code, 400)
+        self.assertEqual(invalid_message.status_code, 400)
 
     def test_workflow_rejects_empty_question(self) -> None:
         response = self.client.post(

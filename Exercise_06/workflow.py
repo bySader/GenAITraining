@@ -85,6 +85,22 @@ llm = ChatGroq(
     temperature=0.1,
 )
 
+ASSISTANT_STYLE: dict[str, str] = {
+    "tone": "cercano, claro y respetuoso",
+    "formality": "neutral; evita sonar corporativo, rígido o demasiado formal",
+    "wording": "usa frases naturales y directas; evita saludos o introducciones de relleno",
+    "accuracy": "no inventes datos ni ocultes incertidumbre o limitaciones",
+}
+
+
+def assistant_style_instructions() -> str:
+    """Return the shared communication guidelines for answer-generating nodes."""
+    return "\n".join(
+        f"- {guideline}: {instruction}"
+        for guideline, instruction in ASSISTANT_STYLE.items()
+    )
+
+
 # ─────────────────────────────────────────────────────────────
 # DATABASE SCHEMA (injected into LLM prompts so it knows the tables)
 # ─────────────────────────────────────────────────────────────
@@ -274,31 +290,45 @@ Output the SQL query only. No markdown code blocks.
 # ─────────────────────────────────────────────────────────────
 def formatter_node(state: AgentState) -> AgentState:
     """
-    Takes the raw JSON query result and crafts a clear, professional
+    Takes the raw JSON query result and crafts a clear, natural
     natural language answer grounded entirely in the DB data.
     """
     if state.get("error"):
         if state["error"].startswith("BLOCKED:"):
-            response = "Por seguridad, esta consulta no se ejecutó porque la operación solicitada no está permitida."
+            response = (
+                "No ejecuté esta consulta porque la operación solicitada no está permitida. "
+                "Prueba con una pregunta que solo necesite consultar información."
+            )
         else:
-            response = "No se pudo consultar la información. Revisa la pregunta e inténtalo de nuevo."
+            response = (
+                "No pude completar la consulta esta vez. Puedes reformular la pregunta "
+                "o intentarlo de nuevo."
+            )
         return {**state, "final_response": response}
 
     if not state.get("query_result") or state["query_result"] == "[]":
-        return {**state, "final_response": "No encontré resultados para esta consulta."}
+        return {
+            **state,
+            "final_response": (
+                "No encontré datos que coincidan con esa búsqueda. "
+                "¿Quieres probar con otros términos?"
+            ),
+        }
 
-    system = """
-You are a professional business assistant.
+    system = f"""
+You are a helpful company assistant.
 
 Convert the following database query results into a clear, concise,
 and well-formatted natural language response.
 
 Rules:
 - Base your answer ONLY on the data provided. Do NOT add information not in the results.
-- Be conversational and professional.
 - Answer in the same language as the user's question.
 - If there are multiple rows, present them as a numbered list or a brief table summary.
 - Keep the response concise (under 200 words unless a list requires more).
+
+Communication style:
+{assistant_style_instructions()}
 """.strip()
 
     user_msg = f"""
@@ -327,10 +357,20 @@ Please provide a natural language answer based only on the data above.
 def direct_answer_node(state: AgentState) -> AgentState:
     """Answers general-knowledge questions directly without DB access."""
     response = llm.invoke([
-        SystemMessage(content="You are a helpful assistant. Answer concisely and accurately in the same language as the user's question."),
+        SystemMessage(content=f"""
+You are a helpful assistant. Answer accurately and in the same language as the user's question.
+
+Communication style:
+{assistant_style_instructions()}
+""".strip()),
         HumanMessage(content=state["question"]),
     ])
-    return {**state, "sql_query": "", "query_result": "", "final_response": str(response.content).strip()}
+    return {
+        **state,
+        "sql_query": "",
+        "query_result": "",
+        "final_response": coerce_llm_text(response.content),
+    }
 
 
 # ─────────────────────────────────────────────────────────────
@@ -373,15 +413,24 @@ def rag_node(state: AgentState) -> AgentState:
     top_articles = [a for _, a in scored[:2]]
 
     if not top_articles:
-        return {**state, "final_response": "No encontré documentación relacionada con esa pregunta. Contacta con soporte de TI si necesitas ayuda."}
+        return {
+            **state,
+            "final_response": (
+                "No encontré información sobre eso en la documentación disponible. "
+                "¿Quieres probar con otros términos o temas?"
+            ),
+        }
 
     context = "\n\n".join(f"[{a['id']}] {a['title']}\n{a['content']}" for a in top_articles)
 
     system = f"""
-You are a company knowledge base assistant.
+You are a helpful company knowledge base assistant.
 Answer the user's question using ONLY the documentation excerpts below.
-If the excerpts do not contain enough information, say "I don't have that information in my knowledge base."
+If the excerpts do not contain enough information, explain that clearly in the user's language.
 Answer in the same language as the user's question.
+
+Communication style:
+{assistant_style_instructions()}
 
 --- KNOWLEDGE BASE ---
 {context}
@@ -393,15 +442,7 @@ Answer in the same language as the user's question.
         HumanMessage(content=state["question"]),
     ])
 
-    response_content = response.content
-    if isinstance(response_content, str):
-        response_text = response_content
-    else:
-        response_text = "".join(
-            block if isinstance(block, str) else str(block.get("text", ""))
-            for block in response_content
-        )
-
+    response_text = coerce_llm_text(response.content)
     sources = ", ".join(a["id"] for a in top_articles)
     return {
         **state,

@@ -7,6 +7,7 @@ import sqlite3
 import subprocess
 import sys
 import uuid
+from contextlib import closing
 from html import escape
 from pathlib import Path
 from typing import TextIO, TypedDict, cast
@@ -18,6 +19,11 @@ app = Flask(__name__)
 
 ROOT = Path(__file__).resolve().parent
 LOG_DIR = ROOT / "logs"
+CONVERSATION_DB_PATH = ROOT / "instance" / "conversation_history.sqlite3"
+MAX_CONVERSATION_MESSAGES = 500
+MAX_CONVERSATION_TEXT_LENGTH = 20_000
+
+
 class ProcessMeta(TypedDict):
   process: subprocess.Popen[str]
   log_file: TextIO
@@ -93,6 +99,151 @@ def find_exercise_dir(exercise_id: str) -> Path | None:
         if path.is_dir() and path.name.lower() == target:
             return path
     return None
+
+
+def validate_conversation_owner(owner_id: str) -> bool:
+    """Accept only canonical UUIDs as browser-local history owners."""
+    try:
+        return str(uuid.UUID(owner_id)) == owner_id
+    except ValueError:
+        return False
+
+
+def load_conversation_history(owner_id: str, exercise_id: str) -> list[dict[str, str]]:
+    """Load a browser's saved messages for one exercise."""
+    if not CONVERSATION_DB_PATH.exists():
+        return []
+
+    with closing(sqlite3.connect(CONVERSATION_DB_PATH)) as connection:
+        rows = connection.execute(
+            """
+            SELECT message_id, role, content, created_at, script_name, sql_query, status
+            FROM conversation_messages
+            WHERE owner_id = ? AND exercise_id = ?
+            ORDER BY created_at, rowid
+            """,
+            (owner_id, exercise_id),
+        ).fetchall()
+
+    return [
+        {
+            "id": row[0],
+            "role": row[1],
+            "content": row[2],
+            "createdAt": row[3],
+            "scriptName": row[4],
+            "sqlQuery": row[5],
+            "status": row[6],
+        }
+        for row in rows
+    ]
+
+
+def save_conversation_history(
+    owner_id: str,
+    exercise_id: str,
+    messages: list[dict[str, str]],
+) -> None:
+    """Replace an exercise conversation atomically in the separate history store."""
+    CONVERSATION_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(CONVERSATION_DB_PATH)) as connection:
+        with connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS conversation_messages (
+                    owner_id TEXT NOT NULL,
+                    exercise_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                    content TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    script_name TEXT NOT NULL,
+                    sql_query TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+                    PRIMARY KEY (owner_id, exercise_id, message_id)
+                )
+                """
+            )
+            connection.execute(
+                "DELETE FROM conversation_messages WHERE owner_id = ? AND exercise_id = ?",
+                (owner_id, exercise_id),
+            )
+            connection.executemany(
+                """
+                INSERT INTO conversation_messages (
+                    owner_id, exercise_id, message_id, role, content,
+                    created_at, script_name, sql_query, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        owner_id,
+                        exercise_id,
+                        message["id"],
+                        message["role"],
+                        message["content"],
+                        message["createdAt"],
+                        message["scriptName"],
+                        message["sqlQuery"],
+                        message["status"],
+                    )
+                    for message in messages
+                ],
+            )
+
+
+def normalize_conversation_messages(raw_messages: object) -> list[dict[str, str]] | None:
+    """Validate and limit client-supplied messages before storing them."""
+    if not isinstance(raw_messages, list) or len(raw_messages) > MAX_CONVERSATION_MESSAGES:
+        return None
+
+    normalized: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    for raw_message in raw_messages:
+        if not isinstance(raw_message, dict):
+            return None
+
+        message_id = raw_message.get("id")
+        role = raw_message.get("role")
+        content = raw_message.get("content")
+        created_at = raw_message.get("createdAt")
+        script_name = raw_message.get("scriptName", "")
+        sql_query = raw_message.get("sqlQuery", "")
+        status = raw_message.get("status", "completed")
+        if (
+            not isinstance(message_id, str)
+            or not message_id
+            or len(message_id) > 100
+            or message_id in seen_ids
+            or not isinstance(role, str)
+            or role not in {"user", "assistant"}
+            or not isinstance(content, str)
+            or len(content) > MAX_CONVERSATION_TEXT_LENGTH
+            or not isinstance(created_at, str)
+            or not created_at
+            or len(created_at) > 64
+            or not isinstance(script_name, str)
+            or len(script_name) > 255
+            or not isinstance(sql_query, str)
+            or len(sql_query) > MAX_CONVERSATION_TEXT_LENGTH
+            or not isinstance(status, str)
+            or status not in {"running", "completed", "failed"}
+        ):
+            return None
+
+        seen_ids.add(message_id)
+        normalized.append(
+            {
+                "id": message_id,
+                "role": role,
+                "content": content,
+                "createdAt": created_at,
+                "scriptName": script_name,
+                "sqlQuery": sql_query,
+                "status": status,
+            }
+        )
+    return normalized
 
 
 def find_readme(folder: Path) -> Path | None:
@@ -938,7 +1089,7 @@ INDEX_HTML = '''
           <div class="chat-header">
             <div>
               <p class="chat-heading">Conversación</p>
-              <p id="chatPersistence" class="chat-persistence" role="status">El historial se guarda en este navegador.</p>
+              <p id="chatPersistence" class="chat-persistence" role="status">La conversación se guarda para consultarla después.</p>
             </div>
             <button id="clearHistoryButton" class="ghost-button" type="button">Borrar historial</button>
           </div>
@@ -946,7 +1097,7 @@ INDEX_HTML = '''
           <form id="chatForm" class="stdin-panel">
             <label for="stdinInput" class="visually-hidden">Mensaje o respuestas para el script</label>
             <textarea id="stdinInput" aria-describedby="stdinHelp" placeholder="Escribe un mensaje o las respuestas que solicita el script..."></textarea>
-            <small id="stdinHelp" class="stdin-caption">Enter ejecuta el script principal. Shift+Enter agrega una línea. El historial queda guardado en este navegador.</small>
+            <small id="stdinHelp" class="stdin-caption">Enter ejecuta el script principal. Shift+Enter agrega una línea. La conversación se guarda para que puedas volver a consultarla.</small>
             <small id="inputFeedback" class="input-feedback" role="alert" hidden></small>
             <button id="sendButton" class="primary-button" type="submit">Enviar y ejecutar</button>
           </form>
@@ -956,12 +1107,17 @@ INDEX_HTML = '''
 
     <script>
       const HISTORY_STORAGE_KEY = 'genai-training-chat-history-v1';
+      const HISTORY_OWNER_STORAGE_KEY = 'genai-training-history-owner-v1';
+      const MAX_CONVERSATION_MESSAGES = 500;
       const INITIAL_EXERCISES = __INITIAL_EXERCISES__;
 
       const state = {
         exercises: INITIAL_EXERCISES,
         selectedExerciseId: null,
         conversations: Object.create(null),
+        historyOwnerId: null,
+        historyWriteQueues: Object.create(null),
+        historyRestorePromises: Object.create(null),
         activeProcessPid: null,
         activePoller: null,
         isLaunching: false,
@@ -986,6 +1142,34 @@ INDEX_HTML = '''
 
       function setPersistenceStatus(message) {
         elements.chatPersistence.textContent = message;
+      }
+
+      function createHistoryOwnerId() {
+        if (crypto.randomUUID) {
+          return crypto.randomUUID();
+        }
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+      }
+
+      function initializeHistoryOwner() {
+        try {
+          const storedOwnerId = localStorage.getItem(HISTORY_OWNER_STORAGE_KEY);
+          if (storedOwnerId && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(storedOwnerId)) {
+            state.historyOwnerId = storedOwnerId;
+            return;
+          }
+          state.historyOwnerId = createHistoryOwnerId();
+          localStorage.setItem(HISTORY_OWNER_STORAGE_KEY, state.historyOwnerId);
+        } catch (error) {
+          state.historyOwnerId = null;
+          console.error('No se pudo inicializar el identificador del historial.', error);
+          setPersistenceStatus('No se pudo preparar el guardado del historial en este navegador.');
+        }
       }
 
       function loadConversationHistory() {
@@ -1054,23 +1238,133 @@ INDEX_HTML = '''
         }
       }
 
-      function saveConversationHistory() {
+      function saveConversationHistory(exerciseId = null) {
+        let localSaveSucceeded = true;
         try {
           localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(state.conversations));
           setPersistenceStatus('Historial guardado en este navegador.');
-          return true;
         } catch (error) {
           console.error('No se pudo guardar el historial de conversación.', error);
           setPersistenceStatus('No se pudo guardar el historial. Revisa el espacio disponible del navegador.');
-          return false;
+          localSaveSucceeded = false;
         }
+        if (exerciseId) {
+          syncConversationHistory(exerciseId);
+        }
+        return localSaveSucceeded;
+      }
+
+      function syncConversationHistory(exerciseId) {
+        if (!state.historyOwnerId) {
+          return;
+        }
+        const messages = [...getConversation(exerciseId)];
+        const previousWrite = state.historyWriteQueues[exerciseId] || Promise.resolve();
+        const write = previousWrite.catch(() => {}).then(async () => {
+          const hasMessages = messages.length > 0;
+          const response = await fetch(
+            `/api/conversations/${encodeURIComponent(state.historyOwnerId)}/${encodeURIComponent(exerciseId)}`,
+            {
+              method: hasMessages ? 'PUT' : 'DELETE',
+              headers: hasMessages ? { 'Content-Type': 'application/json' } : {},
+              body: hasMessages ? JSON.stringify({ messages }) : undefined,
+            }
+          );
+          const result = await response.json();
+          if (!response.ok) {
+            throw new Error(result.error || 'No se pudo guardar el historial.');
+          }
+        });
+        state.historyWriteQueues[exerciseId] = write;
+        setPersistenceStatus('Guardando la conversación…');
+        write.then(() => {
+          if (state.selectedExerciseId === exerciseId) {
+            setPersistenceStatus('Conversación guardada. Puedes consultarla aquí cuando vuelvas.');
+          }
+        }).catch((error) => {
+          console.error('No se pudo sincronizar el historial de conversación.', error);
+          if (state.selectedExerciseId === exerciseId) {
+            setPersistenceStatus('No se pudo guardar en el servidor; se conserva la copia de este navegador.');
+          }
+        });
+      }
+
+      function restoreConversationHistory(exerciseId) {
+        if (!state.historyOwnerId || state.historyRestorePromises[exerciseId]) {
+          return state.historyRestorePromises[exerciseId] || Promise.resolve();
+        }
+
+        const restore = (async () => {
+          try {
+            const response = await fetch(
+              `/api/conversations/${encodeURIComponent(state.historyOwnerId)}/${encodeURIComponent(exerciseId)}`
+            );
+            const result = await response.json();
+            if (!response.ok || !Array.isArray(result.messages)) {
+              throw new Error(result.error || 'El servidor devolvió un historial no válido.');
+            }
+
+            const localMessages = getConversation(exerciseId);
+            const messagesById = new Map();
+            for (const message of result.messages) {
+              if (
+                message &&
+                typeof message.id === 'string' &&
+                (message.role === 'user' || message.role === 'assistant') &&
+                typeof message.content === 'string'
+              ) {
+                messagesById.set(message.id, message);
+              }
+            }
+            for (const message of localMessages) {
+              messagesById.set(message.id, message);
+            }
+
+            const restoredMessages = [...messagesById.values()]
+              .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+              .slice(-MAX_CONVERSATION_MESSAGES);
+            for (const message of restoredMessages) {
+              if (message.role === 'assistant' && message.status === 'running') {
+                message.status = 'failed';
+                message.content = `${message.content}\n\nLa ejecución se interrumpió antes de terminar.`;
+              }
+            }
+            state.conversations[exerciseId] = restoredMessages;
+            try {
+              localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(state.conversations));
+            } catch (error) {
+              console.error('No se pudo actualizar la copia local del historial.', error);
+            }
+            if (restoredMessages.length) {
+              syncConversationHistory(exerciseId);
+            } else if (state.selectedExerciseId === exerciseId) {
+              setPersistenceStatus('Todavía no hay mensajes guardados en esta conversación.');
+            }
+            if (state.selectedExerciseId === exerciseId) {
+              renderConversation(exerciseId);
+            }
+          } catch (error) {
+            console.error('No se pudo consultar el historial guardado.', error);
+            if (state.selectedExerciseId === exerciseId) {
+              setPersistenceStatus('No se pudo consultar el historial del servidor; se muestra la copia de este navegador.');
+            }
+          } finally {
+            delete state.historyRestorePromises[exerciseId];
+          }
+        })();
+        state.historyRestorePromises[exerciseId] = restore;
+        return restore;
       }
 
       function getConversation(exerciseId) {
         if (!state.conversations[exerciseId]) {
           state.conversations[exerciseId] = [];
         }
-        return state.conversations[exerciseId];
+        const conversation = state.conversations[exerciseId];
+        if (conversation.length > MAX_CONVERSATION_MESSAGES) {
+          conversation.splice(0, conversation.length - MAX_CONVERSATION_MESSAGES);
+        }
+        return conversation;
       }
 
       function renderConversation(exerciseId) {
@@ -1284,6 +1578,7 @@ INDEX_HTML = '''
 
         elements.openReadmeButton.onclick = () => window.open(`/readme/${exercise.id}`, '_blank', 'noopener,noreferrer');
         renderConversation(exercise.id);
+        restoreConversationHistory(exercise.id);
         renderExerciseList();
       }
 
@@ -1335,8 +1630,9 @@ INDEX_HTML = '''
           status: 'completed',
         });
         conversation.push(assistantMessage);
+        getConversation(exerciseId);
         elements.stdinInput.value = '';
-        saveConversationHistory();
+        saveConversationHistory(exerciseId);
         renderConversation(exerciseId);
         setExecutionBusy(true);
 
@@ -1351,7 +1647,7 @@ INDEX_HTML = '''
           if (!response.ok) {
             assistantMessage.content = payload.error || 'No se pudo ejecutar el ejercicio.';
             assistantMessage.status = 'failed';
-            saveConversationHistory();
+            saveConversationHistory(exerciseId);
             renderConversation(exerciseId);
             setExecutionBusy(false);
             return;
@@ -1363,7 +1659,7 @@ INDEX_HTML = '''
           console.error('No se pudo iniciar el script.', error);
           assistantMessage.content = 'No se pudo iniciar el script. Verifica la conexión con el dashboard e inténtalo de nuevo.';
           assistantMessage.status = 'failed';
-          saveConversationHistory();
+          saveConversationHistory(exerciseId);
           renderConversation(exerciseId);
           setExecutionBusy(false);
         }
@@ -1410,7 +1706,7 @@ INDEX_HTML = '''
             assistantMessage.content = `${data.output || 'El proceso terminó sin generar salida.'}\n\nEstado: ${succeeded ? 'completado correctamente.' : 'finalizó con errores.'}`;
           }
           assistantMessage.status = succeeded ? 'completed' : 'failed';
-          saveConversationHistory();
+          saveConversationHistory(exerciseId);
           if (state.selectedExerciseId === exerciseId) {
             renderConversation(exerciseId);
           }
@@ -1423,7 +1719,7 @@ INDEX_HTML = '''
             ? 'No se pudo obtener la respuesta. Verifica la conexión e inténtalo de nuevo.'
             : `No se pudo consultar la salida del script: ${error.message}`;
           assistantMessage.status = 'failed';
-          saveConversationHistory();
+          saveConversationHistory(exerciseId);
           if (state.selectedExerciseId === exerciseId) {
             renderConversation(exerciseId);
           }
@@ -1456,10 +1752,11 @@ INDEX_HTML = '''
           return;
         }
         delete state.conversations[state.selectedExerciseId];
-        saveConversationHistory();
+        saveConversationHistory(state.selectedExerciseId);
         renderConversation(state.selectedExerciseId);
       });
 
+      initializeHistoryOwner();
       loadConversationHistory();
       if (state.exercises.length) {
         selectExercise(state.exercises[0].id);
@@ -1486,6 +1783,42 @@ def index():
 @app.route("/api/exercises")
 def api_exercises():
     return jsonify({"exercises": list_exercises()})
+
+
+@app.route(
+    "/api/conversations/<owner_id>/<exercise_id>",
+    methods=["GET", "PUT", "DELETE"],
+)
+def api_conversation_history(owner_id: str, exercise_id: str):
+    if not validate_conversation_owner(owner_id):
+        return jsonify({"error": "La identificación del historial no es válida."}), 400
+
+    exercise_folder = find_exercise_dir(exercise_id)
+    if not exercise_folder:
+        return jsonify({"error": "No se encontró el ejercicio solicitado."}), 404
+    normalized_exercise_id = exercise_folder.name.lower()
+
+    try:
+        if request.method == "GET":
+            messages = load_conversation_history(owner_id, normalized_exercise_id)
+            return jsonify({"messages": messages})
+
+        if request.method == "DELETE":
+            save_conversation_history(owner_id, normalized_exercise_id, [])
+            return jsonify({"saved": True, "messages": []})
+
+        raw_payload = request.get_json(silent=True)
+        if not isinstance(raw_payload, dict):
+            return jsonify({"error": "El formato del historial no es válido."}), 400
+        messages = normalize_conversation_messages(raw_payload.get("messages"))
+        if messages is None:
+            return jsonify({"error": "Los mensajes del historial no son válidos."}), 400
+
+        save_conversation_history(owner_id, normalized_exercise_id, messages)
+        return jsonify({"saved": True, "messages": messages})
+    except (OSError, sqlite3.Error):
+        app.logger.exception("No se pudo acceder al historial de conversación.")
+        return jsonify({"error": "No se pudo guardar o consultar el historial de conversación."}), 500
 
 
 @app.route("/api/run", methods=["POST"])
