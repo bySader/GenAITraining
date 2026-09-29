@@ -171,7 +171,7 @@ def render_exercise_navigation(exercises: list[dict[str, object]]) -> str:
     if not exercises:
         return '<p class="description-text">No hay ejercicios disponibles en el repositorio.</p>'
 
-    cards = []
+    cards: list[str] = []
     for exercise in exercises:
         exercise_id = escape(str(exercise["id"]), quote=True)
         name = escape(str(exercise["name"]).replace("Exercise_", "Ex."))
@@ -1031,7 +1031,7 @@ INDEX_HTML = '''
               if (exerciseId.toLowerCase() === 'exercise_06' && message.role === 'assistant' && message.scriptName === 'workflow.py') {
                 const legacyOutput = message.content;
                 const sqlMatch = legacyOutput.match(/(?:^|\n)SQL:\s*([\s\S]*?)(?=\nAnswer:\s*\n)/);
-                const answerMatch = legacyOutput.match(/\nAnswer:\s*\n([\s\S]*?)(?=\n-{5,}\s*(?:\n|$)|\nEstado:|\n\nMenu:|$)/);
+                const answerMatch = legacyOutput.match(/\nAnswer:\\s*\n([\\s\S]*?)(?=\n-{5,}\s*(?:\n|$)|\nEstado:|\n\nMenu:|$)/);
                 if (sqlMatch || answerMatch) {
                   message.sqlQuery = sqlMatch ? sqlMatch[1].trim() : '';
                   message.content = answerMatch ? answerMatch[1].trim() : 'La salida anterior no contiene una respuesta legible.';

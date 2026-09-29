@@ -37,11 +37,12 @@ import sqlite3
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
-from typing import TypedDict, Literal, cast
+from typing import Any, TypedDict, Literal, cast
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph  # pyright: ignore[reportMissingTypeStubs]
+from langgraph.graph import END  # pyright: ignore[reportMissingTypeStubs]
 from pydantic import SecretStr
 
 from dotenv import load_dotenv
@@ -131,7 +132,7 @@ def is_safe_sql(sql: str) -> bool:
 # ─────────────────────────────────────────────────────────────
 # DATABASE EXECUTION TOOL
 # ─────────────────────────────────────────────────────────────
-def run_sql(sql: str) -> list[dict]:
+def run_sql(sql: str) -> list[dict[str, Any]]:
     """Execute a SELECT query and return results as list of dicts."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -176,7 +177,7 @@ Do NOT add any explanation.
         HumanMessage(content=state["question"]),
     ])
 
-    route = response.content.strip().lower().strip('"').strip("'")
+    route: str = cast(str, response.content).strip().lower().strip('"').strip("'")
     if route not in ("sql_query", "direct_answer", "rag"):
         route = "sql_query"  # safe default
 
