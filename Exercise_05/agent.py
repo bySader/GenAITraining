@@ -17,13 +17,32 @@ import os
 import json
 import math
 import datetime
+from pathlib import Path
 from typing import Any
+
+import faiss
+import numpy as np
 from groq import Groq
 from dotenv import load_dotenv
 
 load_dotenv()
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-MODEL = "llama-3.3-70b-versatile"   # supports Groq native tool calling
+MODEL = "openai/gpt-oss-120b"   # supports Groq native tool calling
+
+PROJECT_DOCS_DIR = Path(__file__).resolve().parents[1] / "Exercise_04" / "documents"
+DOCUMENT_EMBED_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
+DOCUMENT_CHUNK_SIZE = 400
+DOCUMENT_CHUNK_OVERLAP = 60
+DOCUMENT_TOP_K = 4
+DOCUMENT_MIN_SCORE = 0.25
+DOCUMENT_LOADERS = {".pdf", ".docx", ".json", ".md", ".txt"}
+_DOCUMENT_INDEX_CACHE: tuple[
+    tuple[tuple[str, int, int], ...],
+    faiss.Index,
+    list[dict[str, Any]],
+    Any,
+    list[dict[str, str]],
+] | None = None
 
 # ─────────────────────────────────────────────────────────────
 # MOCK DATA  (in-memory dictionaries -- no external DB needed)
@@ -127,6 +146,167 @@ def search_knowledge_base(keyword: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
+# TOOL 8  search_project_documents
+# ─────────────────────────────────────────────────────────────
+def _read_project_document(path: Path) -> str:
+    """Extract searchable text from a supported Exercise 04 document."""
+    extension = path.suffix.lower()
+    if extension in {".txt", ".md"}:
+        return path.read_text(encoding="utf-8", errors="replace")
+    if extension == ".json":
+        return json.dumps(json.loads(path.read_text(encoding="utf-8")), ensure_ascii=False)
+    if extension == ".pdf":
+        from pypdf import PdfReader
+
+        return "\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages)
+    if extension == ".docx":
+        from docx import Document
+
+        document = Document(str(path))
+        paragraphs = [paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()]
+        tables = [
+            " ".join(cell.text for cell in row.cells)
+            for table in document.tables
+            for row in table.rows
+        ]
+        return "\n".join([*paragraphs, *tables])
+    raise ValueError(f"Unsupported document type: {extension}")
+
+
+def _chunk_project_document(text: str) -> list[str]:
+    words = text.split()
+    if not words:
+        return []
+
+    chunks = []
+    start = 0
+    while start < len(words):
+        end = min(start + DOCUMENT_CHUNK_SIZE, len(words))
+        chunks.append(" ".join(words[start:end]))
+        if end == len(words):
+            break
+        start += DOCUMENT_CHUNK_SIZE - DOCUMENT_CHUNK_OVERLAP
+    return chunks
+
+
+def _project_document_signature(
+    document_paths: list[Path],
+) -> tuple[tuple[str, int, int], ...]:
+    return tuple(
+        (path.name, path.stat().st_mtime_ns, path.stat().st_size)
+        for path in document_paths
+    )
+
+
+def _get_project_document_index() -> tuple[
+    faiss.Index,
+    list[dict[str, Any]],
+    Any,
+    list[dict[str, str]],
+]:
+    global _DOCUMENT_INDEX_CACHE
+
+    if not PROJECT_DOCS_DIR.is_dir():
+        raise FileNotFoundError(f"Document folder not found: {PROJECT_DOCS_DIR}")
+
+    document_paths = sorted(
+        path
+        for path in PROJECT_DOCS_DIR.iterdir()
+        if path.is_file() and path.suffix.lower() in DOCUMENT_LOADERS
+    )
+    if not document_paths:
+        raise FileNotFoundError(f"No supported documents found in {PROJECT_DOCS_DIR}")
+
+    signature = _project_document_signature(document_paths)
+    if _DOCUMENT_INDEX_CACHE and _DOCUMENT_INDEX_CACHE[0] == signature:
+        return _DOCUMENT_INDEX_CACHE[1:]
+
+    print(f"[Documents] Loading {len(document_paths)} source files from {PROJECT_DOCS_DIR}...", flush=True)
+    chunks: list[dict[str, Any]] = []
+    document_errors: list[dict[str, str]] = []
+    for path in document_paths:
+        try:
+            text = _read_project_document(path)
+            for chunk_index, content in enumerate(_chunk_project_document(text)):
+                chunks.append({
+                    "document_name": path.name,
+                    "chunk_index": chunk_index,
+                    "content": content,
+                })
+        except (OSError, ValueError, ImportError) as exc:
+            document_errors.append({"document": path.name, "error": str(exc)})
+        except Exception as exc:
+            document_errors.append({"document": path.name, "error": str(exc)})
+
+    if not chunks:
+        detail = "; ".join(
+            f"{error['document']}: {error['error']}" for error in document_errors
+        )
+        raise RuntimeError(f"No document text could be loaded from {PROJECT_DOCS_DIR}. {detail}")
+
+    from sentence_transformers import SentenceTransformer
+
+    print(f"[Documents] Creating multilingual embeddings for {len(chunks)} chunks...", flush=True)
+    embedding_model = SentenceTransformer(DOCUMENT_EMBED_MODEL)
+    embeddings = embedding_model.encode(
+        [chunk["content"] for chunk in chunks],
+        convert_to_numpy=True,
+        show_progress_bar=False,
+    )
+    embeddings = np.asarray(embeddings, dtype=np.float32)
+    faiss.normalize_L2(embeddings)
+    index = faiss.IndexFlatIP(embeddings.shape[1])
+    index.add(embeddings)
+    print(f"[Documents] Search index ready with {index.ntotal} chunks.", flush=True)
+
+    _DOCUMENT_INDEX_CACHE = (
+        signature,
+        index,
+        chunks,
+        embedding_model,
+        document_errors,
+    )
+    return index, chunks, embedding_model, document_errors
+
+
+def search_project_documents(query: str) -> dict[str, Any]:
+    """Search Exercise 04 documents and return relevant excerpts with their sources."""
+    if not query.strip():
+        return {"query": query, "results_found": 0, "message": "Enter a question to search the documents."}
+
+    try:
+        index, chunks, embedding_model, document_errors = _get_project_document_index()
+        query_embedding = embedding_model.encode([query], convert_to_numpy=True)
+        query_embedding = np.asarray(query_embedding, dtype=np.float32)
+        faiss.normalize_L2(query_embedding)
+        scores, indices = index.search(query_embedding, DOCUMENT_TOP_K)
+    except Exception as exc:
+        return {"query": query, "results_found": 0, "error": str(exc)}
+
+    results = []
+    for score, chunk_index in zip(scores[0], indices[0]):
+        if chunk_index < 0 or float(score) < DOCUMENT_MIN_SCORE:
+            continue
+        chunk = chunks[int(chunk_index)]
+        results.append({
+            "document": chunk["document_name"],
+            "relevance": round(float(score), 3),
+            "excerpt": chunk["content"],
+        })
+
+    response: dict[str, Any] = {
+        "query": query,
+        "results_found": len(results),
+        "results": results,
+    }
+    if not results:
+        response["message"] = "No relevant excerpt was found in the Exercise 04 documents."
+    if document_errors:
+        response["document_errors"] = document_errors
+    return response
+
+
+# ─────────────────────────────────────────────────────────────
 # TOOL 4  get_weather
 # ─────────────────────────────────────────────────────────────
 def get_weather(city: str) -> dict:
@@ -197,6 +377,7 @@ TOOL_FUNCTIONS: dict[str, callable] = {
     "get_employee_information":  get_employee_information,
     "get_ticket_status":         get_ticket_status,
     "search_knowledge_base":     search_knowledge_base,
+    "search_project_documents":  search_project_documents,
     "get_weather":               get_weather,
     "get_tickets_by_employee":   get_tickets_by_employee,
     "calculate":                 calculate,
@@ -245,7 +426,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "search_knowledge_base",
-            "description": "Search the company IT/HR knowledge base articles by keyword. Use when the user asks for documentation, procedures, policies, or how-to guides.",
+            "description": "Search the mock company IT/HR support articles for internal procedures, policies, and employee support topics. For programming, DevOps, machine-learning, project-management, or database learning questions, use search_project_documents instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -255,6 +436,23 @@ TOOL_SCHEMAS = [
                     }
                 },
                 "required": ["keyword"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_project_documents",
+            "description": "Search the real multi-format learning documents in Exercise_04/documents for evidence to answer technical, programming, DevOps, project-management, machine-learning, or database questions. Use this tool instead of answering from general knowledge when the user asks about these topics. Returns relevant excerpts and source filenames; answer only from those excerpts.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The user's question or a concise search query. Preserve the user's language; multilingual semantic search is supported."
+                    }
+                },
+                "required": ["query"]
             }
         }
     },
@@ -343,6 +541,7 @@ You have access to the following tools:
 - get_employee_information: look up employee profiles
 - get_ticket_status: check IT support ticket status
 - search_knowledge_base: find documentation and procedures
+- search_project_documents: search the actual PDF, DOCX, JSON, Markdown, and TXT files in Exercise_04/documents and return relevant excerpts with source filenames
 - get_weather: get current weather for a city
 - get_tickets_by_employee: get all tickets assigned to an employee
 - calculate: perform mathematical calculations
@@ -350,10 +549,12 @@ You have access to the following tools:
 
 RULES:
 1. ONLY call a tool when the user's question genuinely requires real data from that tool.
-2. For general knowledge questions (e.g., "What is AI?", "Explain databases"), answer directly WITHOUT calling any tool.
-3. After calling a tool, base your final answer EXCLUSIVELY on the data returned by the tool.
-4. Never invent employee names, ticket numbers, or any other data.
-5. Be concise and professional.
+2. For technical questions covered by the Exercise 04 learning documents, call search_project_documents. Do not answer these from general knowledge alone.
+3. For general questions unrelated to the available tools or project documents, answer directly WITHOUT calling a tool.
+4. After calling search_project_documents, base your answer EXCLUSIVELY on its excerpts. If none are relevant or they do not contain the answer, say that the documents do not provide enough information. Cite the source filename(s). If the tool returns an error, report that the document search failed; do not guess.
+5. After calling any other tool, base your final answer EXCLUSIVELY on the data returned by that tool.
+6. Never invent employee names, ticket numbers, or any other data.
+7. Be concise and professional.
 """.strip()
 
 

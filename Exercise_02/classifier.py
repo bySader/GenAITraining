@@ -12,6 +12,7 @@ import os
 import json
 import glob
 from pathlib import Path
+from typing import Any, Callable
 from groq import Groq
 from dotenv import load_dotenv
 
@@ -226,14 +227,14 @@ PROMPTS = {
 # LLM call helper with JSON enforcement + 1 retry
 # ─────────────────────────────────────────────────────────────
 
-def call_llm(system_prompt: str, user_message: str) -> dict:
+def call_llm(system_prompt: str, user_message: str) -> dict[str, Any]:
     """
     Calls Groq LLM and parses a JSON response.
     Retries once if JSON parsing fails.
     """
     for attempt in range(2):
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="openai/gpt-oss-120b",
             temperature=0.1,
             max_tokens=256,
             messages=[
@@ -241,7 +242,7 @@ def call_llm(system_prompt: str, user_message: str) -> dict:
                 {"role": "user",   "content": user_message},
             ],
         )
-        raw = response.choices[0].message.content.strip()
+        raw = (response.choices[0].message.content or "").strip()
 
         try:
             clean = raw.replace("```json", "").replace("```", "").strip()
@@ -254,6 +255,8 @@ def call_llm(system_prompt: str, user_message: str) -> dict:
             raise ValueError(
                 f"Model did not return valid JSON after 2 attempts.\nRaw: {raw}"
             )
+
+    raise RuntimeError("Model did not return valid JSON after 2 attempts.")
 
 # ─────────────────────────────────────────────────────────────
 # Helper function to check for multiple topics
@@ -278,7 +281,11 @@ def has_multiple_topics(text: str) -> bool:
 # Call classification chain (Option 2)
 # ─────────────────────────────────────────────────────────────
 
-def classify_document(text: str, category_prompt: str, subcategory_builder) -> dict:
+def classify_document(
+    text: str,
+    category_prompt: str,
+    subcategory_builder: Callable[[str], str],
+) -> dict[str, str]:
     """
     Call 1: Determine category.
     Call 2: Determine sub-category constrained by the result of Call 1.

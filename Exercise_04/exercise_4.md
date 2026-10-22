@@ -51,6 +51,10 @@ Create a python function to query your index.
 - retrieve the best chunk of the selected document to answer the question.
 - implement similarity search or vector search or hybrid
 
+The Exercise 04 implementation first receives the question. For a supported-topic question, it then loads or builds the FAISS index, retrieves the most relevant chunks, and sends those sources as context to the LLM. Out-of-scope questions do not load the index. This keeps document loading after the question and avoids the first load for queries the knowledge base cannot answer.
+
+It accepts supported-topic questions in English and Spanish and uses multilingual embeddings so either language can retrieve the English source documents. When the embedding model changes, the saved FAISS index is rebuilt automatically on the next in-scope question.
+
 IMPORTANT:
 If the query is not related to the database/index information, do not search.
 Return a polite message saying that the information is out of scope. 

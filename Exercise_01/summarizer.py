@@ -5,20 +5,27 @@ Text Summarization with Structured JSON Output using Groq
 
 import os
 import json
+from pathlib import Path
+from typing import Any
 from groq import Groq
 from dotenv import load_dotenv
 
 # ─────────────────────────────────────────────────────────────
 # Load environment variables from .env file
 # ─────────────────────────────────────────────────────────────
-load_dotenv()
+load_dotenv(Path(__file__).resolve().with_name(".env"))
 
 # ─────────────────────────────────────────────────────────────
 # STEP 1 — Instantiate the LLM (Groq client)
 # ─────────────────────────────────────────────────────────────
-client = Groq(
-    api_key=os.environ.get("GROQ_API_KEY")
-)
+api_key = (os.environ.get("GROQ_API_KEY") or "").strip()
+if not api_key:
+    raise RuntimeError(
+        "No se encontró GROQ_API_KEY. Configúrala en Exercise_01/.env "
+        "o como variable de entorno antes de ejecutar el ejercicio."
+    )
+
+client = Groq(api_key=api_key)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -92,13 +99,13 @@ PROMPTS = {
 # STEP 3 — Core function: call Groq and enforce JSON output
 # ─────────────────────────────────────────────────────────────
 
-def summarize_text(user_text: str, system_prompt: str) -> dict:
+def summarize_text(user_text: str, system_prompt: str) -> dict[str, Any]:
     """
     Sends the user text to the Groq LLM and returns a parsed JSON dict.
     Raises ValueError if the model response is not valid JSON.
     """
     chat_completion = client.chat.completions.create(
-        model="llama3-8b-8192",         # fast and free on Groq
+        model="openai/gpt-oss-120b",         # fast and free on Groq
         temperature=0.3,                 # lower = more deterministic output
         max_tokens=1024,
         messages=[
@@ -113,13 +120,15 @@ def summarize_text(user_text: str, system_prompt: str) -> dict:
         ]
     )
 
-    raw_response = chat_completion.choices[0].message.content.strip()
+    raw_response = (chat_completion.choices[0].message.content or "").strip()
+    if not raw_response:
+        raise ValueError("Model returned an empty response.")
 
     # STEP 3 — Parse and validate the JSON response
     try:
         # Clean up markdown code fences if the model adds them
         clean = raw_response.replace("```json", "").replace("```", "").strip()
-        result = json.loads(clean)
+        result: dict[str, Any] = json.loads(clean)
         return result
     except json.JSONDecodeError as e:
         raise ValueError(
@@ -155,7 +164,7 @@ def main():
     print("\nPaste the text you want to summarize.")
     print("(Press Enter twice when done)\n")
 
-    lines = []
+    lines: list[str] = []
     while True:
         line = input()
         if line == "" and lines and lines[-1] == "":

@@ -134,6 +134,8 @@ The LLM should:
 5. Receive the result
 6. Generate the final answer
 
+For technical questions, the `search_project_documents` tool searches the real PDF, DOCX, JSON, Markdown, and TXT files in `Exercise_04/documents` using multilingual embeddings. It returns relevant excerpts with source filenames, and the assistant must answer from those excerpts rather than general knowledge. The index is built on the first document search in each agent process and reused for later questions in that same process. Document loading and embedding progress are printed while the index is built.
+
 ### Step 4
 
 Implement response generation using tool outputs.

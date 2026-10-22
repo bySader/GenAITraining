@@ -1,0 +1,22 @@
+Sesión de ejemplo
+FASE 0 — ENCABEZADO
+Fecha de sesión (AAAA-MM-DD): 2026-09-30
+FASE 2 — RESUMEN OBJETIVO
+Seguimiento general.
+FASE 3 — EXTRACCIÓN DE VARIABLES CLÍNICAS
+Ansiedad: [PRESENTE] — preocupación anticipatoria
+Sueño: [NO EXPLORADO]
+FASE 5 — CODIFICACIÓN DEL LENGUAJE
+Autocrítica:
+Ocurrencias: 1
+Fragmentos: "me critico mucho" [PACIENTE]
+Nivel de confianza: MEDIO
+FASE 7 — HIPÓTESIS FUNCIONALES
+H1
+Hipótesis [HIP]: La autocrítica aparece ante situaciones de estrés.
+Nivel de confianza: MEDIO
+Posibles explicaciones alternativas: información insuficiente.
+FASE 12 — VIÑETA CLÍNICA ROCA
+Objetivos de la sesión: explorar estrategias de afrontamiento.
+FASE 13 — VIÑETA CLÍNICA ROCA
+Objetivos de la sesión: final.

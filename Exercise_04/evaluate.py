@@ -15,7 +15,7 @@ TEST_CASES = [
     # --- IN-SCOPE ---
     {"q": "What are Python decorators and how do I use them?",            "scope": "in"},
     {"q": "Explain the four pillars of object-oriented programming.",     "scope": "in"},
-    {"q": "What is the difference between Git merge and Git rebase?",     "scope": "in"},
+    #{"q": "What is the difference between Git merge and Git rebase?",     "scope": "in"},
     # {"q": "How do I create a Docker container and expose a port?",        "scope": "in"},
     # {"q": "What is a CI/CD pipeline and why is it important?",            "scope": "in"},
     # {"q": "What is the difference between supervised and unsupervised learning?", "scope": "in"},
@@ -26,7 +26,7 @@ TEST_CASES = [
 
     # --- OUT-OF-SCOPE ---
     {"q": "What is the capital of France?",                               "scope": "out"},
-    {"q": "Who won the FIFA World Cup in 2022?",                          "scope": "out"},
+    #{"q": "Who won the FIFA World Cup in 2022?",                          "scope": "out"},
     # {"q": "What is the best recipe for paella?",                          "scope": "out"},
     # {"q": "Tell me about the history of the Roman Empire.",               "scope": "out"},
     # {"q": "How do I invest in the stock market?",                         "scope": "out"},

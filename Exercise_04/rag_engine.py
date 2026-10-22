@@ -14,16 +14,24 @@ import os
 import json
 import pickle
 import re
-import glob
+import glob 
+import unicodedata
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TypedDict 
 
-import numpy as np
+import numpy as np # type: ignore[import-untyped]
 import faiss
 from sentence_transformers import SentenceTransformer
-from rank_bm25 import BM25Okapi
+from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 from groq import Groq
 from dotenv import load_dotenv
+
+
+class RAGResult(TypedDict):
+    answer: str
+    sources: list[str]
+    in_scope: bool
+
 
 # ─────────────────────────────────────────────────────────────
 # Config
@@ -34,9 +42,10 @@ DOCS_DIR      = Path(__file__).parent / "documents"
 INDEX_DIR     = Path(__file__).parent / "faiss_index"
 INDEX_PATH    = INDEX_DIR / "index.faiss"
 METADATA_PATH = INDEX_DIR / "metadata.pkl"
+EMBEDDING_MODEL_PATH = INDEX_DIR / "embedding_model.txt"
 
-EMBED_MODEL   = "all-MiniLM-L6-v2"
-LLM_MODEL     = "llama-3.1-8b-instant"
+EMBED_MODEL   = "paraphrase-multilingual-MiniLM-L12-v2"
+LLM_MODEL     = "openai/gpt-oss-120b"
 CHUNK_SIZE    = 400     # ~words per chunk
 CHUNK_OVERLAP = 60      # words of overlap between consecutive chunks
 TOP_K_VECTOR  = 10      # candidates from FAISS before re-ranking
@@ -50,17 +59,30 @@ client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 # ─────────────────────────────────────────────────────────────
 KNOWN_TOPICS = {
     "Programming":          ["python", "decorator", "class", "function", "oop", "object", "inheritance",
-                              "polymorphism", "api", "rest", "http", "endpoint", "code", "programming", "language"],
+                              "polymorphism", "api", "rest", "http", "endpoint", "code", "programming", "language",
+                              "programacion", "programar", "decorador", "decoradores", "clase", "funcion",
+                              "objeto", "herencia", "polimorfismo", "codigo", "lenguaje",
+                              "orientada a objetos", "desarrollo de software"],
     "DevOps":               ["git", "docker", "container", "ci", "cd", "pipeline", "deploy", "branch",
-                              "commit", "jenkins", "github", "devops", "kubernetes", "image", "workflow"],
+                              "commit", "jenkins", "github", "devops", "kubernetes", "image", "workflow",
+                              "contenedor", "despliegue", "rama", "ramas", "integracion continua",
+                              "entrega continua", "repositorio", "flujo de trabajo"],
     "Project Management":   ["agile", "scrum", "kanban", "sprint", "backlog", "standup", "retrospective",
-                              "wip", "velocity", "burndown", "product owner", "scrum master", "iteration"],
+                              "wip", "velocity", "burndown", "product owner", "scrum master", "iteration",
+                              "gestion de proyectos", "agil", "reunion diaria", "retrospectiva",
+                              "limite de trabajo en curso", "velocidad", "iteracion"],
     "Machine Learning":     ["machine learning", "neural network", "deep learning", "model", "training",
                               "overfitting", "backpropagation", "activation", "gradient", "regression",
-                              "classification", "clustering", "feature", "dataset", "algorithm", "ml"],
+                              "classification", "clustering", "feature", "dataset", "algorithm", "ml",
+                              "aprendizaje automatico", "aprendizaje profundo", "red neuronal",
+                              "redes neuronales", "entrenamiento", "sobreajuste", "retropropagacion",
+                              "funcion de activacion", "gradiente", "regresion", "clasificacion",
+                              "agrupamiento", "conjunto de datos", "algoritmo"],
     "Databases":            ["sql", "database", "nosql", "mongodb", "redis", "query", "table", "index",
                               "join", "normalization", "transaction", "schema", "primary key", "acid",
-                              "postgresql", "relational", "document store"],
+                              "postgresql", "relational", "document store", "base de datos", "bases de datos",
+                              "consulta", "consultas", "tabla", "indice", "normalizacion", "transaccion",
+                              "esquema", "clave primaria", "relacional", "almacenamiento de documentos"],
 }
 
 ALL_KEYWORDS = {kw for kws in KNOWN_TOPICS.values() for kw in kws}
@@ -235,6 +257,9 @@ def build_index(docs_dir: Path, model: SentenceTransformer) -> tuple[faiss.Index
         except Exception as e:
             print(f"    [ERROR] {doc_path.name}: {e}")
 
+    if not all_chunks:
+        raise RuntimeError(f"No se pudo cargar contenido de documentos en {docs_dir}.")
+
     print(f"\n  Embedding {len(all_chunks)} total chunks...")
     texts = [c["content"] for c in all_chunks]
     embeddings = model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
@@ -266,13 +291,23 @@ def load_index() -> tuple[faiss.Index, list[dict]]:
 
 def get_or_build_index(force_rebuild: bool = False) -> tuple[faiss.Index, list[dict], SentenceTransformer]:
     model = SentenceTransformer(EMBED_MODEL)
-    if not force_rebuild and INDEX_PATH.exists() and METADATA_PATH.exists():
+    index_uses_current_model = (
+        EMBEDDING_MODEL_PATH.is_file()
+        and EMBEDDING_MODEL_PATH.read_text(encoding="utf-8").strip() == EMBED_MODEL
+    )
+    if (
+        not force_rebuild
+        and INDEX_PATH.exists()
+        and METADATA_PATH.exists()
+        and index_uses_current_model
+    ):
         print("[INFO] Loading existing FAISS index from disk...")
         index, chunks = load_index()
     else:
         print("[INFO] Building FAISS index from documents...")
         index, chunks = build_index(DOCS_DIR, model)
         save_index(index, chunks)
+        EMBEDDING_MODEL_PATH.write_text(EMBED_MODEL, encoding="utf-8")
     return index, chunks, model
 
 
@@ -286,11 +321,15 @@ def is_in_scope(query: str) -> bool:
     Returns True if the query likely relates to known topics.
     This prevents wasted API calls and irrelevant retrievals.
     """
-    q_lower = query.lower()
-    for keyword in ALL_KEYWORDS:
-        if keyword in q_lower:
-            return True
-    return False
+    def normalize(text: str) -> str:
+        decomposed = unicodedata.normalize("NFKD", text.casefold())
+        return "".join(char for char in decomposed if not unicodedata.combining(char))
+
+    normalized_query = normalize(query)
+    return any(
+        re.search(rf"(?<!\w){re.escape(normalize(keyword))}(?!\w)", normalized_query)
+        for keyword in ALL_KEYWORDS
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -380,6 +419,12 @@ Rules:
 --- END OF CONTEXT ---
 """.strip()
 
+OUT_OF_SCOPE_ANSWER = (
+    "I'm sorry, that question is outside the scope of my knowledge base. "
+    "I can only answer questions about Programming, DevOps, Project Management, "
+    "Machine Learning, and Databases."
+)
+
 
 def build_context_block(chunks: list[dict]) -> str:
     """Format retrieved chunks into a readable context block with source citations."""
@@ -396,7 +441,7 @@ def ask_rag(
     chunks: list[dict],
     model: SentenceTransformer,
     verbose: bool = False,
-) -> dict:
+) -> RAGResult:
     """
     Full RAG pipeline:
       0. Scope guard -- reject out-of-domain queries immediately
@@ -409,9 +454,7 @@ def ask_rag(
     # Step 0: Scope guard
     if not is_in_scope(question):
         return {
-            "answer":   "I'm sorry, that question is outside the scope of my knowledge base. "
-                        "I can only answer questions about Programming, DevOps, Project Management, "
-                        "Machine Learning, and Databases.",
+            "answer":   OUT_OF_SCOPE_ANSWER,
             "sources":  [],
             "in_scope": False,
         }
@@ -467,11 +510,12 @@ def main():
     print("  Topics: Programming | DevOps | Project Mgmt | ML | Databases")
     print("=" * 65)
 
-    index, chunks, embed_model = get_or_build_index()
-
-    docs = len({c["document_name"] for c in chunks})
-    print(f"\n[OK] Ready! {docs} documents | {len(chunks)} chunks indexed.")
-    print("     Commands: 'verbose on/off' | 'rebuild' | 'quit'\n")
+    index: Optional[faiss.Index] = None
+    chunks: list[dict] = []
+    embed_model: Optional[SentenceTransformer] = None
+    print("\n  Escribe una pregunta para buscar en los documentos.")
+    print("  La base RAG se cargará cuando llegue la primera pregunta relacionada.")
+    print("  Commands: 'verbose on/off' | 'rebuild' | 'quit'\n")
 
     verbose = False
 
@@ -499,8 +543,23 @@ def main():
             index, chunks, embed_model = get_or_build_index(force_rebuild=True)
             continue
 
+        if not is_in_scope(question):
+            result: RAGResult = {
+                "answer": OUT_OF_SCOPE_ANSWER,
+                "sources": [],
+                "in_scope": False,
+            }
+        else:
+            if index is None or embed_model is None:
+                print("[INFO] Pregunta recibida. Cargando documentos para buscar una respuesta...")
+                index, chunks, embed_model = get_or_build_index()
+                docs = len({c["document_name"] for c in chunks})
+                print(f"[OK] {docs} documentos cargados | {len(chunks)} fragmentos indexados.")
+
+            assert index is not None and embed_model is not None
+            result = ask_rag(question, index, chunks, embed_model, verbose=verbose)
+
         print("\n[...] Thinking...\n")
-        result = ask_rag(question, index, chunks, embed_model, verbose=verbose)
 
         if result["sources"]:
             print(f"Sources: {', '.join(result['sources'])}")

@@ -506,9 +506,6 @@ def build_workflow() -> Any:
     graph.add_edge("direct_answer", END)
     graph.add_edge("rag",           END)
 
-    # The installed LangGraph stubs leave ``compile`` partially unknown to
-    # static analyzers; keep the runtime call unchanged while making the
-    # boundary explicit.
     compile_workflow = cast(Any, graph).compile
     return compile_workflow()
 

@@ -29,10 +29,11 @@ pip install -r requirements.txt
 ```
 
 ### 3. Configurar tu API Key
-Crea un archivo llamado `.env` (copia de `.env.example`) y agrega tu key:
+Crea un archivo llamado `.env` (copia de `.env.example`) y reemplaza el valor de ejemplo con tu key:
 ```
-GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxx
+GROQ_API_KEY=your_groq_api_key_here
 ```
+No compartas ni subas este archivo al repositorio. `.env` está excluido por `.gitignore`.
 
 ### 4. Ejecutar la aplicación
 ```bash

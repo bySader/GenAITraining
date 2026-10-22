@@ -3,11 +3,11 @@
     "id": 1,
     "scope": "in",
     "question": "What are Python decorators and how do I use them?",
-    "answer": "Python decorators are a powerful and expressive feature in Python. A decorator is a function that takes another function as input and extends or alters its behavior without modifying the original function's source code.\n\n**Basic Decorator Syntax**\n\nA decorator is applied using the `@` symbol before a function definition. Here's an example:\n\n```python\ndef my_decorator(func):\n    def wrapper(*args, **kwargs):\n        print(\"Before the function runs\")\n        result = func(*args, **kwargs)\n        print(\"After the function runs\")\n        return result\n    return wrapper\n\n@my_decorator\ndef say_hello():\n    print(\"Hello!\")\n\nsay_hello()\n# Output:\n# Before the function runs\n# Hello!\n# After the function runs\n```\n\nIn this example, `my_decorator` is a function that takes `say_hello` as input and returns a new function `wrapper`. When `say_hello` is called, it actually calls the `wrapper` function, which prints \"Before the function runs\", calls `say_hello` (which prints \"Hello!\"), and then prints \"After the function runs\".\n\n**Using `functools.wraps`**\n\nWhen using decorators, it's a good practice to use `functools.wraps` to preserve the original function's metadata (name, docstring, etc.). Here's an example:\n\n```python\nimport functools\n\ndef my_decorator(func):\n    @functools.wraps(func)\n    def wrapper(*args, **kwargs):\n        return func(*args, **kwargs)\n    return wrapper\n\n@my_decorator\ndef say_hello():\n    \"\"\"Prints a greeting\"\"\"\n    print(\"Hello!\")\n\nprint(say_hello.__name__)  # Output: say_hello\nprint(say_hello.__doc__)   # Output: Prints a greeting\n```\n\n**Decorators with Arguments**\n\nYou can create decorators that accept arguments by adding another layer of nesting. Here's an example:\n\n```python\ndef repeat(n):\n    def decorator(func):\n        @functools.wraps(func)\n        def wrapper(*args, **kwargs):\n            for _ in range(n):\n                func(*args, **kwargs)\n        return wrapper\n    return decorator\n\n@repeat(3)\ndef greet():\n    print(\"Hello!\")\n\ngreet()\n# Output:\n# Hello!\n# Hello!\n# Hello!\n```\n\nIn this example, `repeat` is a function that takes an argument `n` and returns a decorator that repeats the function `n` times.",
+    "answer": "**Python decorators** are a feature that lets you wrap (or “decorate”) a function with another function in order to extend or modify its behavior **without changing the original function’s source code**.\n\n### How a decorator works\n1. A decorator is a **function that receives another function as its argument**.  \n2. Inside the decorator you define an inner function (often called `wrapper`) that:\n   * Executes code **before** calling the original function (optional).  \n   * Calls the original function (`func(*args, **kwargs)`).  \n   * Executes code **after** the original function returns (optional).  \n3. The decorator returns the inner `wrapper` function, which replaces the original function.\n\n### Basic syntax\n```python\ndef my_decorator(func):\n    def wrapper(*args, **kwargs):\n        print(\"Before the function runs\")\n        result = func(*args, **kwargs)      # call the original function\n        print(\"After the function runs\")\n        return result\n    return wrapper          # replace the original with wrapper\n```\n\nApply it with the `@` symbol placed directly above the function definition:\n\n```python\n@my_decorator\ndef say_hello():\n    print(\"Hello!\")\n\nsay_hello()\n# Output:\n# Before the function runs\n# Hello!\n# After the function runs\n```\n\n### Preserving metadata\nWhen you wrap a function, its name, docstring, etc., are replaced by those of `wrapper`.  \nUse `functools.wraps` to keep the original metadata:\n\n```python\nimport functools\n\ndef my_decorator(func):\n    @functools.wraps(func)\n    def wrapper(*args, **kwargs):\n        return func(*args, **kwargs)\n    return wrapper\n```\n\n### Decorators with arguments\nIf you need a decorator that itself takes arguments, add another level of nesting:\n\n```python\ndef repeat(n):\n    def decorator(func):\n        @functools.wraps(func)\n        def wrapper(*args, **kwargs):\n            for _ in range(n):\n                func(*args, **kwargs)\n        return wrapper\n    return decorator\n\n@repeat(3)\ndef greet():\n    print(\"Hello!\")\n\ngreet()   # Prints \"Hello!\" three times\n```\n\n### Common built‑in decorators\n- `@staticmethod` – defines a method that receives no `self` or `cls`.  \n- `@classmethod` – defines a method that receives the class (`cls`) as its first argument.  \n- `@property` – lets a method be accessed like an attribute.\n\n### Practical use cases\n1. **Logging** – automatically log calls and results.  \n2. **Timing** – measure execution time.  \n3. **Caching** – cache results (e.g., `functools.lru_cache`).  \n4. **Authentication** – check permissions before running a function.  \n5. **Retry logic** – retry a function on failure.\n\n**Example – timing decorator**\n\n```python\nimport time, functools\n\ndef timer(func):\n    @functools.wraps(func)\n    def wrapper(*args, **kwargs):\n        start = time.perf_counter()\n        result = func(*args, **kwargs)\n        end = time.perf_counter()\n        print(f\"{func.__name__} ran in {end - start:.4f} seconds\")\n        return result\n    return wrapper\n\n@timer\ndef slow_function():\n    time.sleep(1)\n\nslow_function()\n# Output: slow_function ran in 1.0012 seconds\n```\n\nIn summary, decorators let you **encapsulate reusable pre‑ and post‑processing logic** and apply it cleanly to any function using the `@decorator_name` syntax.",
     "sources": [
-      "python_decorators.txt",
+      "python_intro.md",
       "kanban_guide.docx",
-      "python_intro.md"
+      "python_decorators.txt"
     ],
     "in_scope_detected": true
   },
@@ -15,43 +15,24 @@
     "id": 2,
     "scope": "in",
     "question": "Explain the four pillars of object-oriented programming.",
-    "answer": "The four pillars of object-oriented programming (OOP) are:\n\n### 1. Encapsulation\n\nEncapsulation is the concept of bundling data and methods that operate on that data into a single unit, called a class. This helps to hide the internal details of an object from the outside world and provides a way to control access to the data. Encapsulation promotes data hiding, which is essential for maintaining the integrity of an object's state.\n\n```python\nclass BankAccount:\n    def __init__(self, balance: float):\n        self.__balance = balance  # private attribute\n\n    def deposit(self, amount: float):\n        self.__balance += amount\n\n    def get_balance(self) -> float:\n        return self.__balance\n```\n\n### 2. Inheritance\n\nInheritance is a mechanism that allows one class to inherit the properties and behavior of another class. The child class inherits all the attributes and methods of the parent class and can also add new attributes and methods or override the ones inherited from the parent class.\n\n```python\nclass Animal:\n    def speak(self):\n        return \"Some sound\"\n\nclass Dog(Animal):\n    def speak(self):\n        return \"Woof!\"\n\nclass Cat(Animal):\n    def speak(self):\n        return \"Meow!\"\n```\n\n### 3. Polymorphism\n\nPolymorphism is the ability of an object to take on multiple forms. This can be achieved through method overriding or method overloading. Method overriding occurs when a subclass provides a different implementation of a method that is already defined in its superclass. Method overloading occurs when multiple methods with the same name can be defined, but with different parameter lists.\n\n```python\nclass Shape:\n    def area(self):\n        pass\n\nclass Circle(Shape):\n    def __init__(self, radius: float):\n        self.radius = radius\n\n    def area(self) -> float:\n        return 3.14159 * self.radius ** 2\n```\n\n### 4. Abstraction\n\nAbstraction is the concept of showing only the essential features of an object while hiding its internal details. This helps to reduce complexity and improve modularity. Abstraction is achieved through the use of abstract classes and interfaces.\n\n```python\nfrom abc import ABC, abstractmethod\n\nclass Shape(ABC):\n    @abstractmethod\n    def area(self) -> float:\n        pass\n```\n\nThese four pillars of OOP - encapsulation, inheritance, polymorphism, and abstraction - work together to provide a robust and flexible way of designing and implementing software systems.",
+    "answer": "**The four pillars of Object‑Oriented Programming (OOP)** are:\n\n| Pillar | What it means | Example from the context |\n|--------|---------------|--------------------------|\n| **1. Encapsulation** | Bundles data (attributes) and the methods that operate on that data into a single unit – the class – and restricts direct access to some of the class’s internal components. | In the `BankAccount` class, the balance is stored in a **private** attribute `self.__balance`. Access to the balance is provided only through the public methods `deposit()` and `get_balance()`. |\n| **2. Inheritance** | Allows a new class (subclass) to acquire the attributes and methods of an existing class (superclass), promoting code reuse and hierarchical relationships. | `Dog` and `Cat` inherit from `Animal`. They automatically get the `speak` method signature, but each overrides it to provide its own behavior. |\n| **3. Polymorphism** | Enables objects of different classes to be treated interchangeably when they share the same interface (i.e., they implement the same methods). | A list `animals = [Dog(), Cat()]` can be iterated, and each element’s `speak()` method is called without needing to know the concrete class; the correct method (`\"Woof!\"` or `\"Meow!\"`) is invoked at runtime. |\n| **4. Abstraction** | Hides complex implementation details and exposes only the essential features needed by the user. This is often achieved with abstract base classes that define a contract without providing a full implementation. | The `Shape` abstract base class defines an abstract method `area()`. Concrete subclasses like `Circle` must implement `area()`, while users of `Shape` need only know that every shape can compute its area. |\n\nThese pillars together provide a framework for building modular, reusable, and maintainable software.",
     "sources": [
+      "database_design.pdf",
       "python_oop.md",
-      "python_intro.md",
-      "database_design.pdf"
+      "python_intro.md"
     ],
     "in_scope_detected": true
   },
   {
     "id": 3,
-    "scope": "in",
-    "question": "What is the difference between Git merge and Git rebase?",
-    "answer": "I don't know, that is not part of my context.",
-    "sources": [
-      "ci_cd_pipeline.json",
-      "git_workflow.txt"
-    ],
-    "in_scope_detected": true
-  },
-  {
-    "id": 4,
     "scope": "out",
     "question": "What is the capital of France?",
     "answer": "I don't know, that is not part of my context.",
     "sources": [
       "ci_cd_pipeline.json",
-      "ml_fundamentals.pdf",
-      "ml_fundamentals.txt"
+      "ml_fundamentals.txt",
+      "ml_fundamentals.pdf"
     ],
     "in_scope_detected": true
-  },
-  {
-    "id": 5,
-    "scope": "out",
-    "question": "Who won the FIFA World Cup in 2022?",
-    "answer": "I'm sorry, that question is outside the scope of my knowledge base. I can only answer questions about Programming, DevOps, Project Management, Machine Learning, and Databases.",
-    "sources": [],
-    "in_scope_detected": false
   }
 ]

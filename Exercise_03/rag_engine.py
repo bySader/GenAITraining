@@ -33,7 +33,7 @@ INDEX_PATH    = Path(__file__).parent / "faiss_index" / "index.faiss"
 METADATA_PATH = Path(__file__).parent / "faiss_index" / "metadata.pkl"
 
 EMBED_MODEL   = "all-MiniLM-L6-v2"   # fast, lightweight, 384-dim embeddings
-LLM_MODEL     = "llama-3.1-8b-instant"
+LLM_MODEL     = "openai/gpt-oss-120b"
 TOP_K         = 3                     # number of chunks to retrieve per query
 
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
