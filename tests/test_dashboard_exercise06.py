@@ -230,7 +230,7 @@ class DashboardExercise06Tests(unittest.TestCase):
         fake_process.poll.return_value = 0
         fake_process.returncode = 0
 
-        def start_process(*, stdout: TextIO, **_: object) -> Mock:
+        def start_process(*args: object, stdout: TextIO, **_: object) -> Mock:
             stdout.write(structured_output)
             return fake_process
 

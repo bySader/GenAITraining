@@ -56,7 +56,7 @@ def coerce_llm_text(content: Any) -> str:
         return content.strip()
     if isinstance(content, list):
         parts: list[str] = []
-        for item in content:
+        for item in cast(list[Any], content):
             if isinstance(item, str):
                 parts.append(item)
             elif isinstance(item, dict):

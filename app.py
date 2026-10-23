@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -10,7 +11,7 @@ import uuid
 from contextlib import closing
 from html import escape
 from pathlib import Path
-from typing import TextIO, TypedDict, cast
+from typing import Any, TextIO, TypedDict, cast
 
 from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, request
@@ -59,36 +60,74 @@ EXERCISE_OVERRIDES = {
         "description": "Genera resúmenes estructurados, puntos clave y un análisis de sentimiento con prompts de diferentes niveles de complejidad usando Groq.",
         "stack": ["Python", "Groq", "LLaMA3"],
         "main_script": "summarizer.py",
+        "placeholder": "Pega aquí el texto que deseas resumir...",
+        "sample_prompts": [
+            "Python es un lenguaje de programación de alto nivel multiparadigma. Es ampliamente utilizado en ciencia de datos, inteligencia artificial, desarrollo web y automatización por su sintaxis legible.",
+            "La arquitectura de microservicios descompone aplicaciones complejas en servicios independientes que se comunican mediante APIs ligeras, mejorando la escalabilidad y tolerancia a fallos.",
+        ],
     },
     "Exercise_02": {
         "title": "Exercise 02 — Text Classifier",
         "description": "Clasifica documentos cortos en categorías jerárquicas con validación JSON estricta, comparando técnicas de prompting y un pipeline de dos llamadas.",
         "stack": ["Python", "Groq", "LLM", "JSON"],
         "main_script": "classifier.py",
+        "placeholder": "Selecciona técnica (1: Zero-shot, 2: Few-shot, 3: CoT) o presiona Enviar para clasificar el dataset...",
+        "sample_prompts": [
+            "1",
+            "2",
+            "3",
+        ],
     },
     "Exercise_03": {
         "title": "Exercise 03 — RAG Q&A",
         "description": "Construye un sistema RAG con embeddings, búsqueda vectorial FAISS y respuestas ancladas en un conjunto de conocimiento específico para evitar alucinaciones.",
         "stack": ["Python", "FAISS", "Embeddings", "RAG"],
         "main_script": "rag_engine.py",
+        "placeholder": "Haz una pregunta sobre la base de conocimiento de TI...",
+        "sample_prompts": [
+            "¿Cómo solicito un reseteo de contraseña?",
+            "¿Cuáles son los pasos para configurar la VPN?",
+            "¿Cuál es el procedimiento para solicitar reembolso de gastos?",
+        ],
     },
     "Exercise_04": {
         "title": "Exercise 04 — Advanced RAG",
         "description": "Extiende el patrón RAG con documentos multimodal, metadata, chunks, ranking y re-ranking para responder con contexto relevante y grounded.",
         "stack": ["Python", "RAG", "BM25", "pypdf", "docx"],
         "main_script": "rag_engine.py",
+        "placeholder": "Pregunta sobre programación, DevOps, gestión ágil, ML o bases de datos...",
+        "sample_prompts": [
+            "¿Qué es un decorador en Python y cómo se usa?",
+            "¿Cuáles son las diferencias clave entre Scrum y Kanban?",
+            "¿Cómo se previene el sobreajuste (overfitting) en modelos de Machine Learning?",
+            "¿Qué ventajas ofrece la normalización en bases de datos relacionales?",
+        ],
     },
     "Exercise_05": {
         "title": "Exercise 05 — Tool Calling Agent",
         "description": "Crea un asistente con invocación de herramientas, decisiones de ejecución y respuesta final basada en datos reales del entorno y herramientas del sistema.",
         "stack": ["Python", "Groq", "Function Calling", "Agent"],
         "main_script": "agent.py",
+        "placeholder": "Pregunta sobre empleados, tickets, clima, cálculos o documentos...",
+        "sample_prompts": [
+            "¿Cuál es el estatus del ticket INC-12345 y a quién está asignado?",
+            "¿Qué información tienes sobre la empleada Alice Martinez (ID 1001)?",
+            "¿Cuál es el clima actual en Monterrey?",
+            "¿Cuántas personas trabajan en el departamento de IT?",
+            "Calcula la raíz cuadrada de 144 multiplicada por 15.",
+        ],
     },
     "Exercise_06": {
         "title": "Exercise 06 — LangGraph SQL Agent",
         "description": "Interpreta preguntas en lenguaje natural, decide si requieren SQL o RAG, y responde con trazabilidad usando un flujo de LangGraph sobre SQLite.",
         "stack": ["Python", "LangGraph", "SQLite", "RAG"],
         "main_script": "workflow.py",
+        "placeholder": "Escribe una consulta en lenguaje natural sobre la empresa (tickets, empleados, proyectos)...",
+        "sample_prompts": [
+            "¿Cuáles son los tickets de alta prioridad que siguen abiertos?",
+            "¿Cuántos proyectos activos tiene la empresa actualmente?",
+            "¿Quién es el account manager de los clientes en el sector de tecnología?",
+        ],
     },
 }
 
@@ -282,6 +321,8 @@ def build_exercise_record(folder: Path) -> dict[str, object]:
     title = override.get("title") or folder_name
     description = override.get("description") or derive_summary(folder, "Ejercicio de entrenamiento para explorar IA generativa con prompts y flujo de trabajo práctico.")
     stack = override.get("stack") or ["Python", "Generative AI"]
+    placeholder = override.get("placeholder") or "Escribe un mensaje o respuestas para el script..."
+    sample_prompts = override.get("sample_prompts") or []
 
     python_files = sorted(path for path in folder.glob("*.py") if path.is_file())
     main_script = override.get("main_script")
@@ -307,6 +348,8 @@ def build_exercise_record(folder: Path) -> dict[str, object]:
         "main_script": main_script,
         "readme": str(readme.relative_to(ROOT)) if readme else "",
         "status": status,
+        "placeholder": placeholder,
+        "sample_prompts": sample_prompts,
     }
 
 
@@ -421,6 +464,166 @@ def is_safe_script_path(folder: Path, script_name: str) -> bool:
     return candidate.is_file()
 
 
+def prepare_script_stdin(folder_name: str, script_name: str, stdin_text: str) -> str:
+    """Format stdin text so terminal-interactive scripts execute cleanly in web headless mode."""
+    cleaned = (stdin_text or "").strip()
+    folder_lower = folder_name.lower()
+    script_lower = script_name.lower()
+
+    if folder_lower == "exercise_01" and script_lower == "summarizer.py":
+        if not cleaned:
+            cleaned = (
+                "Python es un lenguaje de programación multiparadigma reconocido por su sintaxis clara y legible. "
+                "Es ampliamente utilizado en ciencia de datos, inteligencia artificial, desarrollo web y automatización de procesos."
+            )
+        first_line = cleaned.splitlines()[0].strip()
+        if first_line in {"1", "2", "3"}:
+            rest = "\n".join(cleaned.splitlines()[1:]).strip()
+            return f"{first_line}\n{rest}\n\n\n"
+        return f"1\n{cleaned}\n\n\n"
+
+    if folder_lower == "exercise_02" and script_lower == "classifier.py":
+        if cleaned in {"1", "2", "3"}:
+            return f"{cleaned}\n"
+        return "1\n"
+
+    if folder_lower == "exercise_03" and script_lower == "rag_engine.py":
+        if not cleaned:
+            cleaned = "¿Cómo solicito un reseteo de contraseña?"
+        return f"{cleaned}\nquit\n"
+
+    if folder_lower == "exercise_04" and script_lower == "rag_engine.py":
+        if not cleaned:
+            cleaned = "¿Qué es un decorador en Python y cómo se usa?"
+        return f"{cleaned}\nquit\n"
+
+    if folder_lower == "exercise_05" and script_lower == "agent.py":
+        if not cleaned:
+            cleaned = "¿Cuál es el estatus del ticket INC-12345?"
+        return f"{cleaned}\nquit\n"
+
+    if folder_lower == "exercise_06" and script_lower == "workflow.py":
+        return cleaned
+
+    return cleaned
+
+
+def parse_exercise_output(exercise_id: str, script_name: str, raw_output: str) -> dict[str, Any]:
+    """Parse terminal output into clean structured data for rich web formatting."""
+    if not raw_output:
+        return {"kind": "empty", "raw": ""}
+
+    ex_id = exercise_id.lower()
+    script = script_name.lower()
+
+    # 1. Exercise 01 — Summarizer
+    if ex_id == "exercise_01" and script == "summarizer.py":
+        json_match = re.search(r"\{\s*\"summary\"[\s\S]*?\}", raw_output)
+        if json_match:
+            try:
+                data = json.loads(json_match.group(0))
+                return {
+                    "kind": "summary",
+                    "summary": data.get("summary", ""),
+                    "key_points": data.get("key_points", []),
+                    "sentiment": data.get("sentiment", "neutral"),
+                    "word_count": data.get("word_count", 0),
+                    "technique": data.get("technique", "zero-shot"),
+                    "raw_json": json_match.group(0),
+                }
+            except Exception:
+                pass
+
+    # 2. Exercise 02 — Classifier
+    if ex_id == "exercise_02" and script == "classifier.py":
+        json_match = re.search(r"\[\s*\{\s*\"document_name\"[\s\S]*?\}\s*\]", raw_output)
+        if json_match:
+            try:
+                items = json.loads(json_match.group(0))
+                return {
+                    "kind": "classifier",
+                    "total": len(items),
+                    "items": items,
+                    "raw_json": json_match.group(0),
+                }
+            except Exception:
+                pass
+
+    # 3. Exercise 03 — RAG Q&A
+    if ex_id == "exercise_03" and script == "rag_engine.py":
+        ans_match = re.search(r"Answer:\s*\n([\s\S]*?)(?=\n-{5,}|\nGoodbye!|\nYour question:|$)", raw_output)
+        if ans_match:
+            return {
+                "kind": "rag",
+                "answer": ans_match.group(1).strip(),
+            }
+
+    # 4. Exercise 04 — Advanced RAG
+    if ex_id == "exercise_04" and script == "rag_engine.py":
+        src_match = re.search(r"Sources:\s*([^\n]+)", raw_output)
+        ans_match = re.search(r"Answer:\s*\n([\s\S]*?)(?=\n-{5,}|\nGoodbye!|\nYour question:|$)", raw_output)
+        sources = [s.strip() for s in src_match.group(1).split(",")] if src_match else []
+        answer = ans_match.group(1).strip() if ans_match else ""
+        if answer:
+            is_out_of_scope = "outside the scope" in answer.lower()
+            return {
+                "kind": "advanced_rag",
+                "sources": sources,
+                "answer": answer,
+                "in_scope": not is_out_of_scope,
+            }
+
+    # 5. Exercise 05 — Tool Calling Agent
+    if ex_id == "exercise_05" and script == "agent.py":
+        tool_match = re.search(r"\[Tool\(s\) used:\s*([^\]]+)\]", raw_output)
+        no_tool_match = re.search(r"\[No tool needed\]", raw_output)
+        ans_match = re.search(r"Answer:\s*\n([\s\S]*?)(?=\nStructured JSON:|\n-{5,}|\nGoodbye!|$)", raw_output)
+        json_match = re.search(r"Structured JSON:\s*\n(\{[\s\S]*?\})", raw_output)
+        tool_name = tool_match.group(1).strip() if tool_match else (None if no_tool_match else None)
+        answer = ans_match.group(1).strip() if ans_match else ""
+        structured = None
+        if json_match:
+            try:
+                structured = json.loads(json_match.group(1))
+            except Exception:
+                pass
+        if answer:
+            return {
+                "kind": "agent",
+                "tool": tool_name,
+                "answer": answer,
+                "structured": structured,
+            }
+
+    # 6. Exercise 06 — SQL Workflow
+    if ex_id == "exercise_06" and script == "workflow.py":
+        try:
+            dashboard_data = json.loads(raw_output.strip())
+            if isinstance(dashboard_data, dict):
+                return {
+                    "kind": "sql",
+                    "sql_query": dashboard_data.get("sql_query", ""),
+                    "answer": dashboard_data.get("final_response", ""),
+                    "error": dashboard_data.get("error", ""),
+                }
+        except Exception:
+            pass
+        sql_match = re.search(r"(?:^|\n)SQL:\s*([\s\S]*?)(?=\nAnswer:\s*\n)", raw_output)
+        ans_match = re.search(r"\nAnswer:\s*\n([\s\S]*?)(?=\n-{5,}\s*(?:\n|$)|\nEstado:|\n\nMenu:|$)", raw_output)
+        if sql_match or ans_match:
+            return {
+                "kind": "sql",
+                "sql_query": sql_match.group(1).strip() if sql_match else "",
+                "answer": ans_match.group(1).strip() if ans_match else "",
+                "error": "",
+            }
+
+    if "evaluate.py" in script:
+        return {"kind": "evaluate", "text": raw_output.strip()}
+
+    return {"kind": "raw", "text": raw_output.strip()}
+
+
 INDEX_HTML = '''
 <!DOCTYPE html>
 <html lang="es">
@@ -430,12 +633,13 @@ INDEX_HTML = '''
     <title>GenAI Training Dashboard</title>
     <style>
       :root {
-        --bg: #0f172a;
-        --bg-alt: #111827;
+        --bg: #090e17;
+        --bg-alt: #0f172a;
         --panel: rgba(15, 23, 42, 0.88);
         --panel-soft: #1e293b;
         --card: #111827;
-        --border: rgba(148, 163, 184, 0.2);
+        --border: rgba(148, 163, 184, 0.18);
+        --border-hover: rgba(56, 189, 248, 0.45);
         --muted: #94a3b8;
         --text: #e2e8f0;
         --heading: #f8fafc;
@@ -444,7 +648,10 @@ INDEX_HTML = '''
         --success: #22c55e;
         --warning: #f59e0b;
         --danger: #f87171;
-        --shadow: 0 18px 38px rgba(8, 15, 29, 0.42);
+        --purple: #c084fc;
+        --shadow: 0 18px 38px rgba(8, 15, 29, 0.45);
+        --code-bg: rgba(2, 6, 23, 0.7);
+        --code-border: rgba(56, 189, 248, 0.16);
       }
 
       * { box-sizing: border-box; }
@@ -452,30 +659,25 @@ INDEX_HTML = '''
       html, body {
         margin: 0;
         min-height: 100%;
-        font-family: Arial, Helvetica, sans-serif;
-        background: linear-gradient(135deg, #020817 0%, #0f172a 42%, #111827 100%);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: radial-gradient(circle at top right, #1e1b4b 0%, #0f172a 40%, #020617 100%);
         color: var(--text);
       }
 
-      body {
-        min-height: 100vh;
-      }
-
-      button, input, textarea {
-        font: inherit;
-      }
+      body { min-height: 100vh; }
+      button, input, textarea { font: inherit; }
 
       .app-shell {
         display: grid;
-        grid-template-columns: 320px 1fr;
+        grid-template-columns: 340px 1fr;
         min-height: 100vh;
       }
 
       .sidebar {
-        background: rgba(15, 23, 42, 0.8);
+        background: rgba(15, 23, 42, 0.85);
         border-right: 1px solid var(--border);
         padding: 24px 18px;
-        backdrop-filter: blur(12px);
+        backdrop-filter: blur(14px);
         align-self: start;
         position: sticky;
         top: 0;
@@ -493,14 +695,16 @@ INDEX_HTML = '''
       }
 
       .brand-badge {
-        width: 42px;
-        height: 42px;
+        width: 44px;
+        height: 44px;
         border-radius: 14px;
         display: grid;
         place-items: center;
-        background: linear-gradient(135deg, var(--primary), #8b5cf6);
+        background: linear-gradient(135deg, #0284c7, #8b5cf6);
         color: white;
-        font-weight: 700;
+        font-weight: 800;
+        font-size: 1rem;
+        box-shadow: 0 4px 16px rgba(14, 165, 233, 0.35);
       }
 
       .eyebrow {
@@ -511,13 +715,12 @@ INDEX_HTML = '''
         color: var(--muted);
       }
 
-      h1, h2, h3, p {
-        margin: 0;
-      }
+      h1, h2, h3, p { margin: 0; }
 
       .brand-block h1 {
         font-size: 1.15rem;
         color: var(--heading);
+        font-weight: 700;
       }
 
       .search-box {
@@ -534,7 +737,8 @@ INDEX_HTML = '''
         background: rgba(15, 23, 42, 0.7);
         border-radius: 12px;
         color: var(--text);
-        padding: 0.8rem 0.9rem;
+        padding: 0.75rem 0.9rem;
+        transition: border-color 0.2s;
       }
 
       .search-box input:focus-visible,
@@ -551,29 +755,31 @@ INDEX_HTML = '''
       .exercise-list {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 10px;
       }
 
       .exercise-button {
         width: 100%;
         text-align: left;
         border: 1px solid var(--border);
-        border-radius: 16px;
-        background: rgba(15, 23, 42, 0.72);
-        padding: 14px 14px 12px;
+        border-radius: 14px;
+        background: rgba(15, 23, 42, 0.68);
+        padding: 13px 14px 12px;
         color: var(--text);
         cursor: pointer;
-        transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+        transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
       }
 
       .exercise-button:hover {
-        transform: translateY(-1px);
-        border-color: rgba(56, 189, 248, 0.5);
+        transform: translateY(-2px);
+        border-color: var(--border-hover);
+        box-shadow: 0 4px 14px rgba(56, 189, 248, 0.12);
       }
 
       .exercise-button.active {
         background: rgba(14, 165, 233, 0.12);
         border-color: rgba(56, 189, 248, 0.62);
+        box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.2), 0 6px 18px rgba(14, 165, 233, 0.14);
       }
 
       .exercise-chip {
@@ -581,23 +787,24 @@ INDEX_HTML = '''
         align-items: center;
         justify-content: center;
         min-width: 54px;
-        padding: 0.22rem 0.5rem;
+        padding: 0.2rem 0.5rem;
         border-radius: 999px;
         background: rgba(56, 189, 248, 0.12);
         color: var(--primary);
         font-size: 0.72rem;
         font-weight: 700;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
       }
 
       .exercise-button h3 {
-        font-size: 0.96rem;
-        margin-bottom: 6px;
+        font-size: 0.94rem;
+        margin-bottom: 5px;
+        font-weight: 600;
       }
 
       .exercise-button p {
         color: var(--muted);
-        font-size: 0.76rem;
+        font-size: 0.75rem;
         line-height: 1.45;
       }
 
@@ -613,19 +820,20 @@ INDEX_HTML = '''
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        margin-bottom: 16px;
+        margin-bottom: 14px;
       }
 
       .topbar h2 {
-        font-size: clamp(1.3rem, 2vw, 1.8rem);
+        font-size: clamp(1.3rem, 2vw, 1.75rem);
         color: var(--heading);
+        font-weight: 700;
       }
 
       .detail-description {
-        max-width: 760px;
+        max-width: 780px;
         margin-top: 6px;
         color: var(--muted);
-        font-size: 0.9rem;
+        font-size: 0.88rem;
         line-height: 1.5;
       }
 
@@ -637,12 +845,13 @@ INDEX_HTML = '''
       }
 
       .meta-chip {
-        padding: 0.3rem 0.55rem;
+        padding: 0.28rem 0.6rem;
         border: 1px solid var(--border);
         border-radius: 999px;
-        background: rgba(30, 41, 59, 0.58);
+        background: rgba(30, 41, 59, 0.55);
         color: var(--muted);
         font-size: 0.72rem;
+        font-weight: 500;
       }
 
       .header-actions {
@@ -658,23 +867,24 @@ INDEX_HTML = '''
       .script-button {
         border-radius: 12px;
         border: 1px solid transparent;
-        padding: 0.72rem 1rem;
+        padding: 0.65rem 1rem;
         font-weight: 700;
         cursor: pointer;
-        transition: filter 0.2s ease, transform 0.2s ease;
+        transition: filter 0.2s ease, transform 0.15s ease, box-shadow 0.15s ease;
       }
 
       .primary-button:hover,
       .secondary-button:hover,
       .ghost-button:hover,
       .script-button:hover {
-        filter: brightness(1.06);
+        filter: brightness(1.08);
         transform: translateY(-1px);
       }
 
       .primary-button {
         background: linear-gradient(135deg, var(--primary), var(--primary-strong));
-        color: #062942;
+        color: #032030;
+        box-shadow: 0 4px 14px rgba(14, 165, 233, 0.28);
       }
 
       .secondary-button {
@@ -690,17 +900,10 @@ INDEX_HTML = '''
       }
 
       .panel {
-        background: rgba(15, 23, 42, 0.8);
+        background: rgba(15, 23, 42, 0.82);
         border: 1px solid var(--border);
         border-radius: 18px;
         box-shadow: var(--shadow);
-      }
-
-      .panel-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 12px;
       }
 
       .panel-label {
@@ -708,6 +911,7 @@ INDEX_HTML = '''
         letter-spacing: 0.12em;
         text-transform: uppercase;
         color: var(--muted);
+        font-weight: 700;
       }
 
       .description-text {
@@ -730,10 +934,16 @@ INDEX_HTML = '''
 
       .script-toolbar {
         display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      .script-row {
+        display: flex;
         align-items: center;
         gap: 12px;
-        min-height: 48px;
-        margin-bottom: 12px;
+        flex-wrap: wrap;
       }
 
       .script-actions {
@@ -743,16 +953,54 @@ INDEX_HTML = '''
       }
 
       .script-button {
-        background: rgba(15, 23, 42, 0.8);
+        background: rgba(15, 23, 42, 0.85);
         color: var(--text);
         border-color: var(--border);
-        padding: 0.55rem 0.8rem;
+        padding: 0.5rem 0.85rem;
         font-size: 0.82rem;
       }
 
       .script-button.primary {
-        background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(14, 165, 233, 0.3));
-        border-color: rgba(56, 189, 248, 0.52);
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(14, 165, 233, 0.3));
+        border-color: rgba(56, 189, 248, 0.55);
+        color: #e0f2fe;
+      }
+
+      .quick-prompts-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        overflow-x: auto;
+        padding: 2px 0 6px;
+      }
+
+      .quick-prompt-label {
+        font-size: 0.72rem;
+        color: var(--muted);
+        white-space: nowrap;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .quick-prompt-chip {
+        display: inline-flex;
+        align-items: center;
+        background: rgba(30, 41, 59, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        color: #cbd5e1;
+        border-radius: 999px;
+        padding: 0.3rem 0.75rem;
+        font-size: 0.75rem;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.15s ease;
+      }
+
+      .quick-prompt-chip:hover {
+        background: rgba(56, 189, 248, 0.15);
+        border-color: rgba(56, 189, 248, 0.4);
+        color: #38bdf8;
+        transform: translateY(-1px);
       }
 
       .chat-panel {
@@ -768,13 +1016,13 @@ INDEX_HTML = '''
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 14px 18px;
+        padding: 14px 20px;
         border-bottom: 1px solid var(--border);
       }
 
       .chat-heading {
         color: var(--heading);
-        font-size: 0.92rem;
+        font-size: 0.94rem;
         font-weight: 700;
       }
 
@@ -791,7 +1039,7 @@ INDEX_HTML = '''
         gap: 18px;
         min-height: 260px;
         overflow: auto;
-        padding: 22px clamp(14px, 5vw, 64px);
+        padding: 20px clamp(14px, 4vw, 48px);
         overscroll-behavior: contain;
       }
 
@@ -800,9 +1048,15 @@ INDEX_HTML = '''
         flex: 1;
         align-content: center;
         justify-items: center;
-        gap: 10px;
+        gap: 12px;
         color: var(--muted);
         text-align: center;
+        padding: 30px 20px;
+      }
+
+      .empty-chat-icon {
+        font-size: 2.2rem;
+        opacity: 0.5;
       }
 
       .empty-chat strong {
@@ -811,7 +1065,7 @@ INDEX_HTML = '''
       }
 
       .empty-chat p {
-        max-width: 440px;
+        max-width: 480px;
         font-size: 0.86rem;
         line-height: 1.6;
       }
@@ -819,8 +1073,14 @@ INDEX_HTML = '''
       .chat-message {
         display: flex;
         align-items: flex-start;
-        gap: 10px;
-        max-width: min(820px, 88%);
+        gap: 12px;
+        max-width: min(880px, 92%);
+        animation: fadeIn 0.2s ease-out;
+      }
+
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
       }
 
       .chat-message.user {
@@ -830,9 +1090,9 @@ INDEX_HTML = '''
 
       .message-avatar {
         display: grid;
-        flex: 0 0 32px;
-        width: 32px;
-        height: 32px;
+        flex: 0 0 34px;
+        width: 34px;
+        height: 34px;
         place-items: center;
         border: 1px solid var(--border);
         border-radius: 50%;
@@ -844,10 +1104,12 @@ INDEX_HTML = '''
 
       .chat-message.user .message-avatar {
         background: rgba(14, 165, 233, 0.2);
+        color: #7dd3fc;
       }
 
       .message-content {
         min-width: 0;
+        max-width: 100%;
       }
 
       .message-meta {
@@ -864,14 +1126,13 @@ INDEX_HTML = '''
       }
 
       .message-bubble {
-        padding: 12px 15px;
+        padding: 14px 18px;
         border: 1px solid var(--border);
         border-radius: 4px 16px 16px 16px;
-        background: rgba(30, 41, 59, 0.72);
+        background: rgba(30, 41, 59, 0.75);
         color: var(--text);
         font-size: 0.9rem;
         line-height: 1.65;
-        white-space: pre-wrap;
         overflow-wrap: anywhere;
       }
 
@@ -879,10 +1140,153 @@ INDEX_HTML = '''
         border-color: rgba(56, 189, 248, 0.28);
         border-radius: 16px 4px 16px 16px;
         background: rgba(14, 165, 233, 0.16);
+        white-space: pre-wrap;
       }
 
       .chat-message.failed .message-bubble {
         border-color: rgba(248, 113, 113, 0.42);
+        background: rgba(239, 68, 68, 0.08);
+      }
+
+      .card-header-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0.25rem 0.65rem;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+
+      .badge-sentiment-positive {
+        background: rgba(34, 197, 94, 0.15);
+        color: var(--success);
+        border: 1px solid rgba(34, 197, 94, 0.35);
+      }
+
+      .badge-sentiment-neutral {
+        background: rgba(56, 189, 248, 0.12);
+        color: var(--primary);
+        border: 1px solid rgba(56, 189, 248, 0.3);
+      }
+
+      .badge-sentiment-negative {
+        background: rgba(248, 113, 113, 0.15);
+        color: var(--danger);
+        border: 1px solid rgba(248, 113, 113, 0.35);
+      }
+
+      .badge-tool {
+        background: rgba(192, 132, 252, 0.15);
+        color: var(--purple);
+        border: 1px solid rgba(192, 132, 252, 0.35);
+      }
+
+      .summary-box {
+        background: rgba(15, 23, 42, 0.6);
+        border-left: 3px solid var(--primary);
+        padding: 10px 14px;
+        border-radius: 4px 8px 8px 4px;
+        margin-bottom: 12px;
+        font-size: 0.94rem;
+        line-height: 1.6;
+        color: #f1f5f9;
+      }
+
+      .key-points-list {
+        margin: 8px 0 12px;
+        padding-left: 0;
+        list-style: none;
+        display: grid;
+        gap: 6px;
+      }
+
+      .key-point-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        background: rgba(15, 23, 42, 0.45);
+        padding: 6px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(148, 163, 184, 0.1);
+        font-size: 0.85rem;
+      }
+
+      .key-point-bullet {
+        color: var(--primary);
+        font-weight: 700;
+      }
+
+      .classification-table-wrapper {
+        overflow-x: auto;
+        margin: 10px 0;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+      }
+
+      .classification-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.82rem;
+        text-align: left;
+      }
+
+      .classification-table th {
+        background: rgba(30, 41, 59, 0.9);
+        color: var(--primary);
+        font-weight: 700;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .classification-table td {
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+      }
+
+      .classification-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .category-pill {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
+        border-radius: 6px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        background: rgba(56, 189, 248, 0.15);
+        color: #38bdf8;
+      }
+
+      .category-pill.error {
+        background: rgba(248, 113, 113, 0.15);
+        color: #f87171;
+      }
+
+      .sources-container {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px dashed var(--border);
+      }
+
+      .source-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0.2rem 0.55rem;
+        border-radius: 6px;
+        background: rgba(56, 189, 248, 0.1);
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        color: #93c5fd;
+        font-size: 0.75rem;
+        font-family: monospace;
       }
 
       .structured-response {
@@ -891,7 +1295,10 @@ INDEX_HTML = '''
       }
 
       .result-section-label {
-        margin-bottom: 7px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
         color: var(--primary);
         font-size: 0.72rem;
         font-weight: 700;
@@ -900,17 +1307,17 @@ INDEX_HTML = '''
       }
 
       .sql-query {
-        max-height: 260px;
+        max-height: 240px;
         margin: 0;
         overflow: auto;
         padding: 12px 14px;
-        border: 1px solid var(--border);
+        border: 1px solid var(--code-border);
         border-radius: 10px;
-        background: rgba(2, 6, 23, 0.55);
-        color: #dbeafe;
+        background: var(--code-bg);
+        color: #bae6fd;
         font-family: Consolas, "Courier New", monospace;
         font-size: 0.82rem;
-        line-height: 1.6;
+        line-height: 1.55;
         white-space: pre-wrap;
         overflow-wrap: anywhere;
       }
@@ -921,6 +1328,58 @@ INDEX_HTML = '''
         line-height: 1.7;
         white-space: pre-wrap;
         overflow-wrap: anywhere;
+      }
+
+      .terminal-details {
+        margin-top: 12px;
+        border-top: 1px solid var(--border);
+        padding-top: 8px;
+      }
+
+      .terminal-details summary {
+        font-size: 0.75rem;
+        color: var(--muted);
+        cursor: pointer;
+        padding: 4px 0;
+        user-select: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .terminal-details summary:hover {
+        color: var(--primary);
+      }
+
+      .terminal-raw-code {
+        margin-top: 6px;
+        max-height: 220px;
+        overflow: auto;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: rgba(2, 6, 23, 0.75);
+        border: 1px solid var(--border);
+        color: #94a3b8;
+        font-family: Consolas, monospace;
+        font-size: 0.76rem;
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+
+      .copy-btn {
+        background: transparent;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        color: var(--muted);
+        border-radius: 6px;
+        padding: 0.15rem 0.45rem;
+        font-size: 0.68rem;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+
+      .copy-btn:hover {
+        border-color: var(--primary);
+        color: var(--primary);
       }
 
       .message-status {
@@ -945,7 +1404,7 @@ INDEX_HTML = '''
       .stdin-panel textarea {
         grid-column: 1 / -1;
         width: 100%;
-        min-height: 62px;
+        min-height: 64px;
         max-height: 180px;
         resize: vertical;
         border-radius: 12px;
@@ -971,7 +1430,7 @@ INDEX_HTML = '''
       .stdin-panel .primary-button {
         grid-column: 2;
         grid-row: 2;
-        min-width: 132px;
+        min-width: 140px;
       }
 
       button:disabled,
@@ -981,10 +1440,7 @@ INDEX_HTML = '''
       }
 
       @media (max-width: 980px) {
-        .app-shell {
-          grid-template-columns: 1fr;
-        }
-
+        .app-shell { grid-template-columns: 1fr; }
         .sidebar {
           position: static;
           height: auto;
@@ -992,59 +1448,36 @@ INDEX_HTML = '''
           border-right: none;
           border-bottom: 1px solid var(--border);
         }
-
       }
 
       @media (max-width: 560px) {
         .content {
           min-height: 75vh;
-          padding: 18px 14px 22px;
+          padding: 16px 12px 20px;
         }
-
         .topbar {
           align-items: flex-start;
           flex-direction: column;
         }
-
-        .header-actions {
-          width: 100%;
-        }
-
-        .header-actions > * {
-          flex: 1 1 auto;
-        }
-
-        .chat-panel {
-          min-height: 65vh;
-        }
-
+        .header-actions { width: 100%; }
+        .header-actions > * { flex: 1 1 auto; }
+        .chat-panel { min-height: 65vh; }
         .chat-header {
           align-items: flex-start;
           flex-direction: column;
         }
-
-        .chat-messages {
-          padding: 18px 12px;
-        }
-
-        .chat-message {
-          max-width: 96%;
-        }
-
+        .chat-messages { padding: 16px 10px; }
+        .chat-message { max-width: 96%; }
         .stdin-panel {
           grid-template-columns: 1fr;
           padding: 12px;
         }
-
         .stdin-caption,
         .stdin-panel .primary-button {
           grid-column: 1;
           grid-row: auto;
         }
-
-        .stdin-panel .primary-button {
-          width: 100%;
-        }
+        .stdin-panel .primary-button { width: 100%; }
       }
     </style>
   </head>
@@ -1081,8 +1514,14 @@ INDEX_HTML = '''
         </header>
 
         <section class="script-toolbar" aria-label="Scripts disponibles">
-          <span class="panel-label">Scripts</span>
-          <div id="scriptActions" class="script-actions" aria-label="Scripts disponibles"></div>
+          <div class="script-row">
+            <span class="panel-label">Scripts</span>
+            <div id="scriptActions" class="script-actions" aria-label="Scripts disponibles"></div>
+          </div>
+          <div id="quickPromptsContainer" class="quick-prompts-bar" hidden>
+            <span class="quick-prompt-label">Sugerencias:</span>
+            <div id="quickPromptChips" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+          </div>
         </section>
 
         <section class="panel chat-panel" aria-label="Conversación del ejercicio">
@@ -1130,6 +1569,8 @@ INDEX_HTML = '''
         detailDescription: document.getElementById('detailDescription'),
         exerciseMeta: document.getElementById('exerciseMeta'),
         scriptActions: document.getElementById('scriptActions'),
+        quickPromptsContainer: document.getElementById('quickPromptsContainer'),
+        quickPromptChips: document.getElementById('quickPromptChips'),
         stdinInput: document.getElementById('stdinInput'),
         chatForm: document.getElementById('chatForm'),
         chatMessages: document.getElementById('chatMessages'),
@@ -1208,7 +1649,9 @@ INDEX_HTML = '''
             for (const message of state.conversations[exerciseId]) {
               if (message.role === 'assistant' && message.status === 'running') {
                 message.status = 'failed';
-                message.content = `${message.content}\n\nLa ejecución se interrumpió al salir o recargar la página.`;
+                message.content = `${message.content}
+
+La ejecución se interrumpió al salir o recargar la página.`;
                 shouldSaveHistory = true;
               }
 
@@ -1326,7 +1769,9 @@ INDEX_HTML = '''
             for (const message of restoredMessages) {
               if (message.role === 'assistant' && message.status === 'running') {
                 message.status = 'failed';
-                message.content = `${message.content}\n\nLa ejecución se interrumpió antes de terminar.`;
+                message.content = `${message.content}
+
+La ejecución se interrumpió antes de terminar.`;
               }
             }
             state.conversations[exerciseId] = restoredMessages;
@@ -1367,6 +1812,300 @@ INDEX_HTML = '''
         return conversation;
       }
 
+      function isSqlWorkflowMessage(exerciseId, message) {
+        return exerciseId.toLowerCase() === 'exercise_06' && message.scriptName === 'workflow.py';
+      }
+
+      function copyTextToClipboard(text, btnElement) {
+        navigator.clipboard.writeText(text).then(() => {
+          const original = btnElement.textContent;
+          btnElement.textContent = '✓ Copiado';
+          setTimeout(() => { btnElement.textContent = original; }, 1800);
+        }).catch(() => {
+          btnElement.textContent = 'Error';
+        });
+      }
+
+      const NL = String.fromCharCode(10);
+
+      function extractAnswerFromRaw(rawText) {
+        if (!rawText) return '';
+        const lower = rawText.toLowerCase();
+        const marker = 'answer:';
+        const idx = lower.lastIndexOf(marker);
+        if (idx === -1) return '';
+        let ans = rawText.slice(idx + marker.length).trim();
+        const delimiters = [NL + '---', NL + 'Structured JSON:', NL + 'Goodbye!', NL + 'Menu:', NL + 'Estado:'];
+        for (const delim of delimiters) {
+          const cut = ans.indexOf(delim);
+          if (cut !== -1) {
+            ans = ans.slice(0, cut).trim();
+          }
+        }
+        return ans;
+      }
+
+      function extractSourcesFromRaw(rawText) {
+        if (!rawText) return [];
+        const lines = rawText.split(NL);
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('Sources:')) {
+            return trimmed.replace('Sources:', '').split(',').map((s) => s.trim()).filter(Boolean);
+          }
+        }
+        return [];
+      }
+
+      function extractToolFromRaw(rawText) {
+        if (!rawText) return null;
+        if (rawText.includes('[No tool needed]')) return 'Sin herramientas requeridas';
+        const start = rawText.indexOf('[Tool(s) used:');
+        if (start !== -1) {
+          const end = rawText.indexOf(']', start);
+          if (end !== -1) {
+            return rawText.slice(start + 14, end).trim();
+          }
+        }
+        return null;
+      }
+
+      function renderWebFormattedBubble(exerciseId, message) {
+        const container = document.createElement('div');
+        const exId = (exerciseId || '').toLowerCase();
+        const content = message.content || '';
+        const rawOutput = message.rawOutput || content;
+
+        // Exercise 06 (SQL Workflow)
+        if (isSqlWorkflowMessage(exerciseId, message) && (message.status === 'completed' || message.sqlQuery)) {
+          const structured = document.createElement('div');
+          structured.className = 'structured-response';
+          if (message.sqlQuery) {
+            const querySection = document.createElement('section');
+            const queryLabel = document.createElement('div');
+            queryLabel.className = 'result-section-label';
+            const labelText = document.createElement('span');
+            labelText.textContent = 'Consulta SQL';
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'copy-btn';
+            copyBtn.textContent = 'Copiar SQL';
+            copyBtn.onclick = () => copyTextToClipboard(message.sqlQuery, copyBtn);
+            queryLabel.append(labelText, copyBtn);
+
+            const query = document.createElement('pre');
+            query.className = 'sql-query';
+            const queryCode = document.createElement('code');
+            queryCode.textContent = message.sqlQuery;
+            query.append(queryCode);
+            querySection.append(queryLabel, query);
+            structured.append(querySection);
+          }
+
+          const answerSection = document.createElement('section');
+          const answerLabel = document.createElement('div');
+          answerLabel.className = 'result-section-label';
+          answerLabel.textContent = 'Respuesta';
+          const answer = document.createElement('p');
+          answer.className = 'answer-text';
+          answer.textContent = content;
+          answerSection.append(answerLabel, answer);
+          structured.append(answerSection);
+          container.append(structured);
+          return container;
+        }
+
+        // Exercise 01 (Summarizer)
+        if (exId === 'exercise_01' && rawOutput.includes('"summary"')) {
+          let data = null;
+          try {
+            const startBrace = rawOutput.indexOf('{');
+            const endBrace = rawOutput.lastIndexOf('}');
+            if (startBrace !== -1 && endBrace > startBrace) {
+              data = JSON.parse(rawOutput.slice(startBrace, endBrace + 1));
+            }
+          } catch (e) {}
+
+          if (data && data.summary) {
+            const sentiment = (data.sentiment || 'neutral').toLowerCase();
+            const badgeClass = sentiment === 'positive' ? 'badge-sentiment-positive' : (sentiment === 'negative' ? 'badge-sentiment-negative' : 'badge-sentiment-neutral');
+
+            const badgesDiv = document.createElement('div');
+            badgesDiv.style.display = 'flex';
+            badgesDiv.style.gap = '8px';
+            badgesDiv.style.flexWrap = 'wrap';
+            badgesDiv.style.marginBottom = '10px';
+
+            const sentimentBadge = document.createElement('span');
+            sentimentBadge.className = `card-header-badge ${badgeClass}`;
+            sentimentBadge.textContent = `Sentimiento: ${sentiment}`;
+
+            const techBadge = document.createElement('span');
+            techBadge.className = 'card-header-badge badge-sentiment-neutral';
+            techBadge.textContent = `Técnica: ${data.technique || 'Zero-shot'}`;
+
+            const wordsBadge = document.createElement('span');
+            wordsBadge.className = 'card-header-badge badge-sentiment-neutral';
+            wordsBadge.textContent = `${data.word_count || 0} palabras`;
+
+            badgesDiv.append(sentimentBadge, techBadge, wordsBadge);
+            container.append(badgesDiv);
+
+            const summaryBox = document.createElement('div');
+            summaryBox.className = 'summary-box';
+            summaryBox.textContent = data.summary;
+            container.append(summaryBox);
+
+            if (Array.isArray(data.key_points) && data.key_points.length) {
+              const pointsTitle = document.createElement('div');
+              pointsTitle.className = 'result-section-label';
+              pointsTitle.textContent = 'Puntos Clave';
+              container.append(pointsTitle);
+
+              const pointsList = document.createElement('ul');
+              pointsList.className = 'key-points-list';
+              data.key_points.forEach((point) => {
+                const li = document.createElement('li');
+                li.className = 'key-point-item';
+                li.textContent = `• ${point}`;
+                pointsList.append(li);
+              });
+              container.append(pointsList);
+            }
+            return container;
+          }
+        }
+
+        // Exercise 02 (Classifier)
+        if (exId === 'exercise_02' && rawOutput.includes('"document_name"')) {
+          let items = null;
+          try {
+            const startBracket = rawOutput.indexOf('[');
+            const endBracket = rawOutput.lastIndexOf(']');
+            if (startBracket !== -1 && endBracket > startBracket) {
+              items = JSON.parse(rawOutput.slice(startBracket, endBracket + 1));
+            }
+          } catch (e) {}
+
+          if (Array.isArray(items) && items.length) {
+            const heading = document.createElement('div');
+            heading.className = 'result-section-label';
+            heading.textContent = `Documentos Clasificados (${items.length})`;
+            container.append(heading);
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'classification-table-wrapper';
+            const table = document.createElement('table');
+            table.className = 'classification-table';
+
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            for (const colTitle of ['Documento', 'Categoría', 'Subcategoría']) {
+              const th = document.createElement('th');
+              th.textContent = colTitle;
+              headerRow.append(th);
+            }
+            thead.append(headerRow);
+
+            const tbody = document.createElement('tbody');
+            for (const item of items) {
+              const tr = document.createElement('tr');
+              const tdDoc = document.createElement('td');
+              const code = document.createElement('code');
+              code.textContent = item.document_name || '';
+              tdDoc.append(code);
+
+              const tdCat = document.createElement('td');
+              const pill = document.createElement('span');
+              pill.className = `category-pill ${item.category === 'ERROR' ? 'error' : ''}`;
+              pill.textContent = item.category || '';
+              tdCat.append(pill);
+
+              const tdSub = document.createElement('td');
+              tdSub.textContent = item.sub_category || '';
+
+              tr.append(tdDoc, tdCat, tdSub);
+              tbody.append(tr);
+            }
+            table.append(thead, tbody);
+            wrapper.append(table);
+            container.append(wrapper);
+            return container;
+          }
+        }
+
+        // Exercise 04 (Advanced RAG)
+        if (exId === 'exercise_04') {
+          const answer = extractAnswerFromRaw(rawOutput);
+          const sources = extractSourcesFromRaw(rawOutput);
+
+          if (answer) {
+            const ansP = document.createElement('p');
+            ansP.className = 'answer-text';
+            ansP.textContent = answer;
+            container.append(ansP);
+
+            if (sources.length) {
+              const sourcesDiv = document.createElement('div');
+              sourcesDiv.className = 'sources-container';
+              const label = document.createElement('span');
+              label.style.fontSize = '0.72rem';
+              label.style.color = 'var(--muted)';
+              label.textContent = 'Fuentes consultadas:';
+              sourcesDiv.append(label);
+              sources.forEach((src) => {
+                const tag = document.createElement('span');
+                tag.className = 'source-tag';
+                tag.textContent = `📄 ${src}`;
+                sourcesDiv.append(tag);
+              });
+              container.append(sourcesDiv);
+            }
+            return container;
+          }
+        }
+
+        // Exercise 05 (Tool Calling Agent)
+        if (exId === 'exercise_05') {
+          const toolName = extractToolFromRaw(rawOutput);
+          const answer = extractAnswerFromRaw(rawOutput);
+
+          if (toolName) {
+            const badge = document.createElement('span');
+            badge.className = 'card-header-badge badge-tool';
+            badge.textContent = `🛠️ ${toolName}`;
+            container.append(badge);
+          }
+
+          if (answer) {
+            const ansP = document.createElement('p');
+            ansP.className = 'answer-text';
+            ansP.textContent = answer;
+            container.append(ansP);
+            return container;
+          }
+        }
+
+        // Exercise 03 (Basic RAG)
+        if (exId === 'exercise_03') {
+          const answer = extractAnswerFromRaw(rawOutput);
+          if (answer) {
+            const ansP = document.createElement('p');
+            ansP.className = 'answer-text';
+            ansP.textContent = answer;
+            container.append(ansP);
+            return container;
+          }
+        }
+
+        // Default text fallback
+        const defaultP = document.createElement('p');
+        defaultP.className = 'answer-text';
+        defaultP.textContent = content;
+        container.append(defaultP);
+        return container;
+      }
+
       function renderConversation(exerciseId) {
         elements.chatMessages.replaceChildren();
         const messages = getConversation(exerciseId);
@@ -1375,11 +2114,14 @@ INDEX_HTML = '''
         if (!messages.length) {
           const emptyState = document.createElement('div');
           emptyState.className = 'empty-chat';
+          const icon = document.createElement('div');
+          icon.className = 'empty-chat-icon';
+          icon.textContent = '💬';
           const title = document.createElement('strong');
           title.textContent = 'Comienza una conversación';
           const description = document.createElement('p');
-          description.textContent = 'Escribe una pregunta o las respuestas que solicita el script. La salida aparecerá aquí y quedará guardada para este ejercicio.';
-          emptyState.append(title, description);
+          description.textContent = 'Escribe una pregunta o utiliza una de las sugerencias rápidas. El script procesará la solicitud y presentará los resultados en formato web estructurado.';
+          emptyState.append(icon, title, description);
           elements.chatMessages.append(emptyState);
           return;
         }
@@ -1408,33 +2150,22 @@ INDEX_HTML = '''
 
           const bubble = document.createElement('div');
           bubble.className = 'message-bubble';
-          if (message.role === 'assistant' && isSqlWorkflowMessage(exerciseId, message) && (message.status === 'completed' || message.sqlQuery)) {
-            const structured = document.createElement('div');
-            structured.className = 'structured-response';
-            if (message.sqlQuery) {
-              const querySection = document.createElement('section');
-              const queryLabel = document.createElement('p');
-              queryLabel.className = 'result-section-label';
-              queryLabel.textContent = 'Consulta SQL';
-              const query = document.createElement('pre');
-              query.className = 'sql-query';
-              const queryCode = document.createElement('code');
-              queryCode.textContent = message.sqlQuery;
-              query.append(queryCode);
-              querySection.append(queryLabel, query);
-              structured.append(querySection);
-            }
+          if (message.role === 'assistant') {
+            const formattedContent = renderWebFormattedBubble(exerciseId, message);
+            bubble.append(formattedContent);
 
-            const answerSection = document.createElement('section');
-            const answerLabel = document.createElement('p');
-            answerLabel.className = 'result-section-label';
-            answerLabel.textContent = 'Respuesta';
-            const answer = document.createElement('p');
-            answer.className = 'answer-text';
-            answer.textContent = message.content;
-            answerSection.append(answerLabel, answer);
-            structured.append(answerSection);
-            bubble.append(structured);
+            const rawText = message.rawOutput || message.content || '';
+            if (rawText && rawText.length > 30 && (rawText.includes(String.fromCharCode(10)) || rawText.includes('='))) {
+              const details = document.createElement('details');
+              details.className = 'terminal-details';
+              const summary = document.createElement('summary');
+              summary.textContent = '🖥️ Ver salida original de terminal';
+              const pre = document.createElement('pre');
+              pre.className = 'terminal-raw-code';
+              pre.textContent = rawText;
+              details.append(summary, pre);
+              bubble.append(details);
+            }
           } else {
             bubble.textContent = message.content;
           }
@@ -1444,10 +2175,10 @@ INDEX_HTML = '''
             const status = document.createElement('p');
             status.className = 'message-status';
             status.textContent = message.status === 'running'
-              ? isSqlWorkflowMessage(exerciseId, message) ? 'Preparando la respuesta…' : 'Ejecutando…'
+              ? (isSqlWorkflowMessage(exerciseId, message) ? 'Preparando la respuesta…' : 'Ejecutando en segundo plano…')
               : message.status === 'failed'
-                ? isSqlWorkflowMessage(exerciseId, message) ? 'No se pudo completar la consulta.' : 'La ejecución terminó con un error.'
-                : 'Respuesta del script';
+                ? (isSqlWorkflowMessage(exerciseId, message) ? 'No se pudo completar la consulta.' : 'La ejecución terminó con un error.')
+                : 'Respuesta completada';
             content.append(status);
           }
 
@@ -1484,6 +2215,9 @@ INDEX_HTML = '''
         elements.sendButton.textContent = isBusy ? 'Ejecutando…' : 'Enviar y ejecutar';
         elements.scriptActions.querySelectorAll('button').forEach((button) => {
           button.disabled = isBusy;
+        });
+        elements.quickPromptChips.querySelectorAll('button').forEach((chip) => {
+          chip.disabled = isBusy;
         });
       }
 
@@ -1576,6 +2310,34 @@ INDEX_HTML = '''
           });
         });
 
+        if (exercise.placeholder) {
+          elements.stdinInput.placeholder = exercise.placeholder;
+        } else {
+          elements.stdinInput.placeholder = 'Escribe un mensaje o las respuestas que solicita el script...';
+        }
+
+        const prompts = Array.isArray(exercise.sample_prompts) ? exercise.sample_prompts : [];
+        if (prompts.length) {
+          elements.quickPromptsContainer.hidden = false;
+          elements.quickPromptChips.replaceChildren(
+            ...prompts.map((promptText) => {
+              const chip = document.createElement('button');
+              chip.className = 'quick-prompt-chip';
+              chip.type = 'button';
+              chip.disabled = state.activeProcessPid !== null || state.isLaunching;
+              chip.textContent = promptText.length > 58 ? `${promptText.slice(0, 55)}...` : promptText;
+              chip.addEventListener('click', () => {
+                elements.stdinInput.value = promptText;
+                elements.stdinInput.focus();
+              });
+              return chip;
+            })
+          );
+        } else {
+          elements.quickPromptsContainer.hidden = true;
+          elements.quickPromptChips.replaceChildren();
+        }
+
         elements.openReadmeButton.onclick = () => window.open(`/readme/${exercise.id}`, '_blank', 'noopener,noreferrer');
         renderConversation(exercise.id);
         restoreConversationHistory(exercise.id);
@@ -1587,10 +2349,6 @@ INDEX_HTML = '''
         if (exercise) {
           return runExercise(exercise.id, exercise.main_script);
         }
-      }
-
-      function isSqlWorkflowMessage(exerciseId, message) {
-        return exerciseId.toLowerCase() === 'exercise_06' && message.scriptName === 'workflow.py';
       }
 
       async function runExercise(exerciseId, scriptName) {
@@ -1703,8 +2461,11 @@ INDEX_HTML = '''
               succeeded = succeeded && !result.error;
             }
           } else {
-            assistantMessage.content = `${data.output || 'El proceso terminó sin generar salida.'}\n\nEstado: ${succeeded ? 'completado correctamente.' : 'finalizó con errores.'}`;
+            assistantMessage.content = `${data.output || 'El proceso terminó sin generar salida.'}
+
+Estado: ${succeeded ? 'completado correctamente.' : 'finalizó con errores.'}`;
           }
+
           assistantMessage.status = succeeded ? 'completed' : 'failed';
           saveConversationHistory(exerciseId);
           if (state.selectedExerciseId === exerciseId) {
@@ -1872,7 +2633,9 @@ def api_run():
     log_path = LOG_DIR / f"{exercise_id}-{uuid.uuid4().hex}.log"
     log_file = log_path.open("w", encoding="utf-8")
 
-    stdin_stream = subprocess.PIPE if stdin_text else subprocess.DEVNULL
+    prepared_stdin = prepare_script_stdin(folder.name, script_name, stdin_text)
+    needs_pipe = bool(prepared_stdin)
+    stdin_stream = subprocess.PIPE if needs_pipe else subprocess.DEVNULL
     is_sql_dashboard_run = folder.name == "Exercise_06" and script_name == "workflow.py"
     command = [sys.executable, script_name]
     if is_sql_dashboard_run:
@@ -1886,18 +2649,18 @@ def api_run():
             stdout=log_file,
             stderr=subprocess.STDOUT,
             text=True,
-            env=os.environ.copy(),
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
         )
-    except OSError as exc:
+    except Exception as exc:
         log_file.close()
         app.logger.exception("No se pudo iniciar %s para %s.", script_name, exercise_id)
         return jsonify({"error": f"No se pudo iniciar el script solicitado: {exc}"}), 500
 
-    if stdin_text:
+    if needs_pipe:
         try:
             if process.stdin is None:
                 raise OSError("El proceso no abrió el canal de entrada.")
-            process.stdin.write(stdin_text)
+            process.stdin.write(prepared_stdin)
             process.stdin.close()
         except (OSError, ValueError) as exc:
             if process.poll() is None:
@@ -1938,8 +2701,12 @@ def process_status(pid: int):
     status = "running" if process.poll() is None else ("completed" if process.returncode == 0 else "failed")
 
     if process.poll() is not None:
-        meta["log_file"].flush()
-        meta["log_file"].close()
+        try:
+            if not getattr(meta["log_file"], "closed", False):
+                meta["log_file"].flush()
+                meta["log_file"].close()
+        except Exception:
+            pass
 
     log_path = Path(meta["log_path"])
     if log_path.exists():
@@ -1947,6 +2714,8 @@ def process_status(pid: int):
         output = "\n".join(lines)
     else:
         output = ""
+
+    parsed = parse_exercise_output(meta["exercise_id"], meta["script_name"], output)
 
     return jsonify(
         {
@@ -1956,6 +2725,7 @@ def process_status(pid: int):
             "exerciseId": meta["exercise_id"],
             "scriptName": meta["script_name"],
             "output": output,
+            "parsed": parsed,
         }
     )
 
